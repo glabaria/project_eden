@@ -1,1 +1,1 @@
-![](.\assets\repo_logo.png)
+![](./assets/repo_logo.png)
