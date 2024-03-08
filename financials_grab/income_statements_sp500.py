@@ -27,7 +27,7 @@ def get_sp500_tickers():
 sp500_tickers = get_sp500_tickers()
 print(sp500_tickers)
 
-api_key = "e742e1b74aa082782e9c1af7f30de1ef"
+api_key = "x"
 
 def get_income_statement(stock):  # Replace with your actual API key
     income_statement = requests.get(f"https://financialmodelingprep.com/api/v3/income-statement/{stock}?period=annual&limit=400&apikey={api_key}")
