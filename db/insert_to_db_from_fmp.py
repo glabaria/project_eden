@@ -89,6 +89,8 @@ def add_datasets_to_db(connection, symbol):
         print("")
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
+        connection.rollback()
+        symbols_with_failure.append(symbol)
 
 
 def main(start_from_symbol=None):
@@ -129,4 +131,7 @@ if __name__ == "__main__":
     with open("./key.txt") as f:
         key = f.readlines()[0]
 
-    main(start_from_symbol="STLA")
+    symbols_with_failure = []
+
+    main(start_from_symbol=None)
+    print(f"The following symbols failed: {symbols_with_failure}")
