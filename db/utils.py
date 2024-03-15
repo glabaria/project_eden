@@ -55,3 +55,18 @@ def insert_record_with_company_id(cursor, table_name, columns, values):
     except psycopg2.errors.NotNullViolation:
         cursor.execute(f"INSERT INTO company (symbol) VALUES ('{symbol_value}')")
         cursor.execute(command)
+
+
+def update_column_target_symbol(table_name, target_column, value_to_set, target_symbol):
+    command = f"UPDATE {table_name} SET {target_column} = %s WHERE symbol = %s"
+    config = load_config()  # Load your database configuration
+    try:
+        with psycopg2.connect(**config) as conn:
+            with conn.cursor() as cur:
+                cur.execute(command, (value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set), target_symbol))
+                updated_row_count = cur.rowcount
+                conn.commit()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        return updated_row_count

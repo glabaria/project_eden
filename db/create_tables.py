@@ -1,11 +1,38 @@
 import psycopg2
+from psycopg2 import sql
 
 from typing import Optional, Tuple
+from db.utils import load_config, connect
 
 
 DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE = {
     "id": "serial primary key",
     "symbol": "text",
+    "companyname": "text",
+    "currency": "text",
+    "cik": "bigint",
+    "isin": "text",
+    "cusip": "bigint",
+    "exchange": "text",
+    "exchangeshortname": "text",
+    "industry": "text",
+    "website": "text",
+    "description": "text",
+    "ceo": "text",
+    "sector": "text",
+    "country": "text",
+    "fulltimeemployees": "int",
+    "phone": "text",
+    "address": "text",
+    "city": "text",
+    "state": "text",
+    "zip": "text",
+    "image": "text",
+    "ipodate": "date",
+    "isetf": "bool",
+    "isactivelytrading": "bool",
+    "isadr": "bool",
+    "isfund": "bool"
 }
 
 
@@ -297,3 +324,34 @@ def create_cash_flow_statement_table(connection: psycopg2.connect, command: Opti
         connection.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
+
+
+def add_columns_if_not_exists(conn, table_name, columns):
+    with conn.cursor() as cur:
+        for column_name, column_type in columns.items():
+            # Check if the column exists
+            cur.execute(sql.SQL("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = %s 
+                AND column_name = %s
+            """), (table_name, column_name))
+            result = cur.fetchone()
+            # If the column does not exist, add it
+            if not result:
+                cur.execute(sql.SQL("""
+                    ALTER TABLE {} 
+                    ADD COLUMN {} {}
+                """).format(sql.Identifier(table_name), sql.Identifier(column_name), sql.SQL(column_type)))
+        conn.commit()
+
+
+if __name__ == "__main__":
+    db_config = load_config()
+    connection = connect(db_config)
+    if connection:
+        print("Connected successfully!")
+    else:
+        raise ValueError(f"Failed to connect to db: {db_config}")
+
+    add_columns_if_not_exists(connection, "company", DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE)

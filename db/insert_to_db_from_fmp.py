@@ -8,12 +8,14 @@ from enum import Enum
 from typing import Optional
 from urllib.request import urlopen
 
-from db.utils import load_config, connect, insert_record, insert_records_from_df
+from db.utils import load_config, connect, insert_record, insert_records_from_df, update_column_target_symbol
+from db.create_tables import DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE
 
 
 INCOME_STATEMENT = "income-statement"
 BALANCE_SHEET_STATEMENT = "balance-sheet-statement"
 CASH_FLOW_STATEMENT = "cash-flow-statement"
+PROFILE = "profile"
 
 
 class Datasets(Enum):
@@ -93,7 +95,7 @@ def add_datasets_to_db(connection, symbol):
         symbols_with_failure.append(symbol)
 
 
-def main(start_from_symbol=None):
+def add_full_company_information(start_from_symbol=None):
     db_config = load_config()
 
     with connect(db_config) as connection:
@@ -107,10 +109,52 @@ def main(start_from_symbol=None):
             ticker_dict = json.loads(file_contents)
 
         counter = 1
+        limit_per_min = 300 / 1
+        start_flag = True if start_from_symbol is None else False
+        for value_dict in ticker_dict.values():
+            if counter >= limit_per_min / 2:
+                time.sleep(60)
+                counter = 1
+
+            symbol = value_dict["ticker"]
+            if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
+                start_flag = True
+            elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
+                print(f"Have not yet encountered {start_from_symbol}, skipping {symbol}.")
+                continue
+
+            if start_flag:
+                print(f"Processing {symbol}")
+                try:
+                    dataset_df = gather_dataset(symbol, PROFILE, key)
+                    for column in dataset_df.columns.values:
+                        if column.lower() in DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE and column not in ["symbol", "id"]:
+                            update_column_target_symbol("company", column.lower(), dataset_df[column].values[0], symbol)
+                except:
+                    connection.rollback()
+                    symbols_with_failure.append(symbol)
+                counter += 1
+
+
+def main(start_from_symbol=None):
+    db_config = load_config()
+
+    with connect(db_config) as connection:
+        if connection:
+            print("Connected successfully!")
+        else:
+            raise ValueError(f"Failed to connect to db: {db_config}")
+
+        # get latest from https://www.sec.gov/files/company_tickers.json
+        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+            file_contents = user_file.read()
+            ticker_dict = json.loads(file_contents)
+
+        counter = 1
         limit_per_min = 300 / len(Datasets)
         start_flag = True if start_from_symbol is None else False
         for value_dict in ticker_dict.values():
-            if counter == limit_per_min:
+            if counter >= limit_per_min:
                 time.sleep(60)
                 counter = 1
 
@@ -133,5 +177,8 @@ if __name__ == "__main__":
 
     symbols_with_failure = []
 
-    main(start_from_symbol=None)
+    # main(start_from_symbol=None)
+    # print(f"The following symbols failed: {symbols_with_failure}")
+
+    add_full_company_information(start_from_symbol="FCX")
     print(f"The following symbols failed: {symbols_with_failure}")
