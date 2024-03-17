@@ -57,6 +57,28 @@ def insert_record_with_company_id(cursor, table_name, columns, values):
         cursor.execute(command)
 
 
+def insert_records_from_df_given_symbol(cursor, df: pd.DataFrame, table_name, symbol):
+    columns = df.columns.values
+    df = df.replace(np.nan, None)
+    for _, row in df.iterrows():
+        insert_record_given_symbol(cursor, table_name, symbol, columns, row)
+
+
+def insert_record_given_symbol(cursor, table_name, symbol, columns, values):
+    placeholders = ', '.join(['%s'] * len(columns))  # Create placeholders for each column
+
+    if "company_id" in columns:
+        raise ValueError("company_id exists in columns, this is a foreign key")
+
+    command = (f"INSERT INTO {table_name} ({'company_id, ' + ', '.join(columns)}) "
+               f"VALUES ((SELECT c.id FROM company c WHERE c.symbol = '{symbol}'), {placeholders})")
+    try:
+        cursor.execute(command, tuple(values))
+    except psycopg2.errors.NotNullViolation:
+        cursor.execute(f"INSERT INTO company (symbol) VALUES ('{symbol}')")
+        cursor.execute(command)
+
+
 def update_column_target_symbol(table_name, target_column, value_to_set, target_symbol):
     command = f"UPDATE {table_name} SET {target_column} = %s WHERE symbol = %s"
     config = load_config()  # Load your database configuration

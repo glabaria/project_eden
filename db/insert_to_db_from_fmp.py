@@ -8,26 +8,31 @@ from enum import Enum
 from typing import Optional
 from urllib.request import urlopen
 
-from db.utils import load_config, connect, insert_record, insert_records_from_df, update_column_target_symbol
-from db.create_tables import DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE
+from db.utils import (load_config, connect, insert_record, insert_records_from_df, update_column_target_symbol,
+                      insert_record_given_symbol, insert_records_from_df_given_symbol)
+from db.create_tables import (DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE, DEFAULT_SHARES_COLUMNS_TO_TYPE,
+                              FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES)
 
 
 INCOME_STATEMENT = "income-statement"
 BALANCE_SHEET_STATEMENT = "balance-sheet-statement"
 CASH_FLOW_STATEMENT = "cash-flow-statement"
 PROFILE = "profile"
+ENTERPRISE_VALUES = "enterprise-values"
 
 
 class Datasets(Enum):
     INCOME_STATEMENT = INCOME_STATEMENT
     BALANCE_SHEET_STATEMENT = BALANCE_SHEET_STATEMENT
     CASH_FLOW_STATEMENT = CASH_FLOW_STATEMENT
+    ENTERPRISE_VALUES = ENTERPRISE_VALUES
 
 
 dataset_to_table_name = {
     Datasets.INCOME_STATEMENT: "income_statement_fy",
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_fy",
-    Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_fy"
+    Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_fy",
+    Datasets.ENTERPRISE_VALUES: "shares_fy"
 }
 
 
@@ -95,6 +100,30 @@ def add_datasets_to_db(connection, symbol):
         symbols_with_failure.append(symbol)
 
 
+def add_dataset_to_db(connection, symbol, dataset, table_name, columns_to_add):
+    try:
+        with connection.cursor() as cursor:
+
+            cursor.execute(f"SELECT id FROM company WHERE symbol = '{symbol}'")
+            company_id = cursor.fetchall()
+            if company_id is None:
+                print(f"--Inserting {symbol} to company table.")
+                insert_record(cursor, "company", ["symbol"], [symbol])
+
+            print(f"--Inserting {symbol} for {table_name} table.")
+            dataset_df = gather_dataset(symbol, dataset.value, key)
+            dataset_df = dataset_df[[POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES.get(x, x) for x in columns_to_add]]
+            dataset_df.rename(columns=FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, inplace=True)
+            insert_records_from_df_given_symbol(cursor, dataset_df, table_name, symbol)
+        connection.commit()
+        print(f"{symbol} insertion complete.")
+        print("")
+    except Exception as e:
+        print(f"Error processing {symbol}: {e}")
+        connection.rollback()
+        symbols_with_failure.append(symbol)
+
+
 def add_full_company_information(start_from_symbol=None):
     db_config = load_config()
 
@@ -133,6 +162,42 @@ def add_full_company_information(start_from_symbol=None):
                 except:
                     connection.rollback()
                     symbols_with_failure.append(symbol)
+                counter += 1
+
+
+def add_shares(start_from_symbol=None):
+    db_config = load_config()
+
+    with connect(db_config) as connection:
+        if connection:
+            print("Connected successfully!")
+        else:
+            raise ValueError(f"Failed to connect to db: {db_config}")
+
+        # get latest from https://www.sec.gov/files/company_tickers.json
+        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+            file_contents = user_file.read()
+            ticker_dict = json.loads(file_contents)
+
+        counter = 1
+        limit_per_min = 300
+        start_flag = True if start_from_symbol is None else False
+        for value_dict in ticker_dict.values():
+            if counter >= limit_per_min:
+                time.sleep(60)
+                counter = 1
+
+            symbol = value_dict["ticker"]
+            if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
+                start_flag = True
+            elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
+                print(f"Have not yet encountered {start_from_symbol}, skipping {symbol}.")
+                continue
+
+            if start_flag:
+                print(f"Processing {symbol}")
+                add_dataset_to_db(connection, symbol, Datasets.ENTERPRISE_VALUES, "shares_fy",
+                                  [x for x in DEFAULT_SHARES_COLUMNS_TO_TYPE if x != "company_id"])
                 counter += 1
 
 
@@ -180,5 +245,6 @@ if __name__ == "__main__":
     # main(start_from_symbol=None)
     # print(f"The following symbols failed: {symbols_with_failure}")
 
-    add_full_company_information(start_from_symbol="FCX")
+    # add_full_company_information(start_from_symbol="FCX")
+    add_shares()
     print(f"The following symbols failed: {symbols_with_failure}")

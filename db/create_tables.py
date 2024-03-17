@@ -189,6 +189,18 @@ DEFAULT_CURRENT_PRICE_COLUMNS_TO_TYPE = {
     "marketCap": "bigint",
 }
 
+DEFAULT_SHARES_COLUMNS_TO_TYPE = {
+    "company_id": "serial",
+    "date": "date",
+    "numberofshares": "bigint"
+}
+
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES = {
+    "numberOfShares": "numberofshares"
+}
+
+POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES = {x: y for y, x in FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.items()}
+
 
 def create_company_table(connection: psycopg2.connect, command: Optional[str] = None,
                          table_name: str = "company",
@@ -326,6 +338,40 @@ def create_cash_flow_statement_table(connection: psycopg2.connect, command: Opti
         print(error)
 
 
+def create_shares_table(connection: psycopg2.connect, command: Optional[str] = None,
+                        table_name: str = "shares_fy",
+                        foreign_key_ref_tuple: Optional[Tuple[str, str, str]] = None) -> None:
+
+    if command is None:
+        column_column_type = ""
+        for column, column_type in DEFAULT_SHARES_COLUMNS_TO_TYPE.items():
+            column_column_type += ("," if column_column_type else "") + f"{column} {column_type}"
+        if foreign_key_ref_tuple is not None:
+            foreign_key_info = (f"foreign key ({foreign_key_ref_tuple[0]}) references "
+                                f"{foreign_key_ref_tuple[1]}({foreign_key_ref_tuple[2]})")
+        else:
+            foreign_key_info = None
+        foreign_key_info = "," + foreign_key_info if foreign_key_info is not None else ""
+
+        command = \
+            f"""
+            CREATE TABLE {table_name} (
+                    {column_column_type}
+                    {foreign_key_info}
+                )
+            """
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute(command)
+        # close communication with the PostgreSQL database server
+        cursor.close()
+        # commit the changes
+        connection.commit()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+
+
 def add_columns_if_not_exists(conn, table_name, columns):
     with conn.cursor() as cur:
         for column_name, column_type in columns.items():
@@ -354,4 +400,6 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Failed to connect to db: {db_config}")
 
-    add_columns_if_not_exists(connection, "company", DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE)
+    # add_columns_if_not_exists(connection, "company", DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE)
+    create_shares_table(connection, table_name="shares_fy",
+                        foreign_key_ref_tuple=("company_id", "company", "id"))
