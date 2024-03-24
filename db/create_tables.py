@@ -401,5 +401,12 @@ if __name__ == "__main__":
         raise ValueError(f"Failed to connect to db: {db_config}")
 
     # add_columns_if_not_exists(connection, "company", DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE)
-    create_shares_table(connection, table_name="shares_fy",
-                        foreign_key_ref_tuple=("company_id", "company", "id"))
+    # create_shares_table(connection, table_name="shares_fy",
+    #                     foreign_key_ref_tuple=("company_id", "company", "id"))
+
+    create_income_statement_table(connection, table_name="income_statement_quarter",
+                                  foreign_key_ref_tuple=("company_id", "company", "id"))
+    create_balance_sheet_table(connection, table_name="balance_sheet_quarter",
+                               foreign_key_ref_tuple=("company_id", "company", "id"))
+    create_cash_flow_statement_table(connection, table_name="cash_flow_statement_quarter",
+                                     foreign_key_ref_tuple=("company_id", "company", "id"))
