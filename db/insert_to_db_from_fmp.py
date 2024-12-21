@@ -263,7 +263,6 @@ def main_quarter(start_from_symbol=None):
         counter = 1
         limit_per_min = 300 / 3
         start_flag = True if start_from_symbol is None else False
-        ticker_dict = {"data1": {"ticker": "HUM"}, "data2": {"ticker": "EMR"}}
         for value_dict in ticker_dict.values():
             if counter >= limit_per_min:
                 time.sleep(60)
