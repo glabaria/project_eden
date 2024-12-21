@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "project-eden"
+version = "0.1.0"
+description = "Project Eden is a fundamental analysis engine, empowering investors to make smarter investment decisions."
+authors = ["glabaria <george.labaria@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+db = {path = "./db"}
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

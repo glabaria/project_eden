@@ -1,11 +1,10 @@
 import psycopg2
 import pandas as pd
 import os
-from collections import namedtuple
 
 from db.utils import load_config
 from db.create_tables import (create_income_statement_table, create_company_table, create_balance_sheet_table,
-                              create_cash_flow_statement_table)
+                                 create_cash_flow_statement_table)
 
 LOCAL_BASE_FILEPATH = "C:/project_eden_shared/all_financials_sp500"
 

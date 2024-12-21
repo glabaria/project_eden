@@ -1,17 +1,15 @@
 import pandas as pd
 import certifi
 import json
-import os
-import psycopg2
 import time
 from enum import Enum
 from typing import Optional
 from urllib.request import urlopen
 
 from db.utils import (load_config, connect, insert_record, insert_records_from_df, update_column_target_symbol,
-                      insert_record_given_symbol, insert_records_from_df_given_symbol)
+                         insert_records_from_df_given_symbol)
 from db.create_tables import (DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE, DEFAULT_SHARES_COLUMNS_TO_TYPE,
-                              FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES)
+                                 FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES)
 
 
 INCOME_STATEMENT = "income-statement"
@@ -143,7 +141,7 @@ def add_full_company_information(start_from_symbol=None):
         else:
             raise ValueError(f"Failed to connect to db: {db_config}")
 
-        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+        with open('/db/db/company_tickers.json') as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -185,7 +183,7 @@ def add_shares(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+        with open('/db/db/company_tickers.json') as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -221,7 +219,7 @@ def main(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+        with open('/db/db/company_tickers.json') as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -256,7 +254,7 @@ def main_quarter(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('C:/Users/georg/PycharmProjects/project_eden/db/company_tickers.json') as user_file:
+        with open('/db/db/company_tickers.json') as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -283,7 +281,7 @@ def main_quarter(start_from_symbol=None):
 
 
 if __name__ == "__main__":
-    with open("./key.txt") as f:
+    with open("key.txt") as f:
         key = f.readlines()[0]
 
     symbols_with_failure = []
