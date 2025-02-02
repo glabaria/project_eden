@@ -254,17 +254,25 @@ def main_quarter(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('/db/db/company_tickers.json') as user_file:
+        with open('C:/Users/georg/PycharmProjects/project_eden/db/db/company_tickers.json') as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
-        counter = 1
-        limit_per_min = 300 / 3
+        counter = 0
+        api_limit_per_min = 300
         start_flag = True if start_from_symbol is None else False
+        start_time = time.time()
+
         for value_dict in ticker_dict.values():
-            if counter >= limit_per_min:
-                time.sleep(60)
-                counter = 1
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+
+            if counter >= api_limit_per_min:
+                sleep_time = 60 - elapsed_time
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                counter = 0
+                start_time = time.time()
 
             symbol = value_dict["ticker"]
             if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
@@ -275,8 +283,7 @@ def main_quarter(start_from_symbol=None):
 
             if start_flag:
                 print(f"Processing {symbol}")
-                add_datasets_to_db(connection, symbol, datasets=[Datasets.INCOME_STATEMENT, Datasets.CASH_FLOW_STATEMENT, Datasets.BALANCE_SHEET_STATEMENT],
-                                   period="quarter")
+                add_datasets_to_db(connection, symbol, datasets=[Datasets.INCOME_STATEMENT, Datasets.CASH_FLOW_STATEMENT, Datasets.BALANCE_SHEET_STATEMENT], period="quarter")
                 counter += 1
 
 
