@@ -2,6 +2,8 @@ import pandas as pd
 import certifi
 import json
 import time
+import os
+import datetime
 from enum import Enum
 from typing import Optional
 from urllib.request import urlopen
@@ -9,7 +11,9 @@ from urllib.request import urlopen
 from db.utils import (load_config, connect, insert_record, insert_records_from_df, update_column_target_symbol,
                          insert_records_from_df_given_symbol)
 from db.create_tables import (DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE, DEFAULT_SHARES_COLUMNS_TO_TYPE,
-                                 FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES)
+                                 FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES,
+                              POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES, DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+                              DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE, DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE)
 
 
 INCOME_STATEMENT = "income-statement"
@@ -38,6 +42,14 @@ dataset_to_table_name_quarter = {
     Datasets.INCOME_STATEMENT: "income_statement_quarter",
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_quarter",
     Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_quarter",
+}
+
+
+dataset_to_table_columns = {
+    Datasets.INCOME_STATEMENT: list(DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()),
+    Datasets.BALANCE_SHEET_STATEMENT: list(DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.keys()),
+    Datasets.CASH_FLOW_STATEMENT: list(DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()),
+    Datasets.ENTERPRISE_VALUES: list(DEFAULT_SHARES_COLUMNS_TO_TYPE.keys())
 }
 
 
@@ -89,12 +101,34 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
         with connection.cursor() as cursor:
 
             cursor.execute(f"SELECT * FROM company WHERE symbol = '{symbol}'")
-            is_exist = cursor.fetchall()
-            if is_exist:
-                print(f"--{symbol} already inserted into db.  Skipping insert into company table.")
-            else:
-                print(f"--Inserting {symbol} to company table.")
-                insert_record(cursor, "company", ["symbol"], [symbol])
+            # TODO: DEBUG
+            is_exist = cursor.fetchone()
+            # if is_exist:
+            #     print(f"--{symbol} already inserted into db.  Checking for diffs.")
+            #     for dataset in datasets:
+            #         dataset_df = gather_dataset(symbol, dataset.value, key, **kwargs)
+            #         cursor.execute(f"SELECT * FROM {dataset_to_table_name_to_use[dataset]} WHERE symbol = '{symbol}'")
+            #         existing_df = pd.DataFrame(cursor.fetchall(), columns=[x[0] for x in cursor.description])
+            #         columns_to_compare = dataset_to_table_columns[dataset]
+            #         columns_to_compare = [x for x in columns_to_compare if x not in ["id", "company_id"]]
+            #         columns_to_compare_lower = [x.lower() for x in columns_to_compare]
+            #         dataset_df.rename(columns={x: y for x, y in zip(columns_to_compare, columns_to_compare_lower)}, inplace=True)
+            #         dataset_df["calendaryear"] = dataset_df["calendaryear"].apply(lambda x: int(x))
+            #         diffs = dataset_df[columns_to_compare_lower].merge(existing_df[columns_to_compare_lower], on=["calendaryear", "period"], how="outer", indicator=True).loc[lambda x: x['_merge'] == 'left_only']
+            #
+            #         if not diffs.empty:
+            #             print(f"--Diffs found for {symbol} in {dataset_to_table_name_to_use[dataset]} table.")
+            #             diffs.drop(columns=[x for x in diffs.columns if x[-2:] == "_y"] + ["_merge"], inplace=True)
+            #             diffs.rename(columns={x: x[:-2] if x[-2:] == "_x" else x for x in diffs.columns}, inplace=True)
+            #             print(diffs)
+            #             print(f"--Updating {symbol} for {dataset_to_table_name_to_use[dataset]} table.")
+            #             columns = diffs.columns.values
+            #             for _, row in diffs.iterrows():
+            #                 update_column_target_symbol(dataset_to_table_name_to_use[dataset], columns, row, symbol,
+            #                                             cursor=cursor)
+            # else:
+            #     print(f"--Inserting {symbol} to company table.")
+            #     insert_record(cursor, "company", ["symbol"], [symbol])
             for dataset in datasets:
                 print(f"--Inserting {symbol} for {dataset_to_table_name_to_use[dataset]} table.")
                 dataset_df = gather_dataset(symbol, dataset.value, key, **kwargs)
@@ -183,7 +217,7 @@ def add_shares(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('/db/db/company_tickers.json') as user_file:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")) as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -219,7 +253,7 @@ def main(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('/db/db/company_tickers.json') as user_file:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")) as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -254,7 +288,7 @@ def main_quarter(start_from_symbol=None):
             raise ValueError(f"Failed to connect to db: {db_config}")
 
         # get latest from https://www.sec.gov/files/company_tickers.json
-        with open('C:/Users/georg/PycharmProjects/project_eden/db/db/company_tickers.json') as user_file:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")) as user_file:
             file_contents = user_file.read()
             ticker_dict = json.loads(file_contents)
 
@@ -275,6 +309,8 @@ def main_quarter(start_from_symbol=None):
                 start_time = time.time()
 
             symbol = value_dict["ticker"]
+            if symbol != "AAPL":  # TODO: DEBUG ONLY
+                continue
             if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
                 start_flag = True
             elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
