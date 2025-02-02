@@ -79,15 +79,29 @@ def insert_record_given_symbol(cursor, table_name, symbol, columns, values):
         cursor.execute(command)
 
 
-def update_column_target_symbol(table_name, target_column, value_to_set, target_symbol):
+def update_column_target_symbol(table_name, target_column, value_to_set, target_symbol, cursor=None):
     command = f"UPDATE {table_name} SET {target_column} = %s WHERE symbol = %s"
-    config = load_config()  # Load your database configuration
+    updated_row_count = 0
+
     try:
-        with psycopg2.connect(**config) as conn:
-            with conn.cursor() as cur:
-                cur.execute(command, (value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set), target_symbol))
-                updated_row_count = cur.rowcount
-                conn.commit()
+        if cursor:
+            # Use the provided cursor instance
+            cursor.execute(
+                command,
+                (value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set), target_symbol)
+            )
+            updated_row_count = cursor.rowcount
+        else:
+            # Create a new connection and cursor
+            config = load_config()  # Load your database configuration
+            with psycopg2.connect(**config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        command,
+                        (value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set), target_symbol)
+                    )
+                    updated_row_count = cur.rowcount
+                    conn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
