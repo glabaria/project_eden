@@ -4,7 +4,7 @@ import numpy as np
 from configparser import ConfigParser
 
 
-def load_config(filename='database.ini', section='postgresql'):
+def load_config(filename='database_v2.ini', section='postgresql'):
     parser = ConfigParser()
     parser.read(filename)
     config = {}
