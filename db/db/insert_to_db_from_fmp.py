@@ -433,5 +433,5 @@ if __name__ == "__main__":
     # add_full_company_information(start_from_symbol="FCX")
     # add_shares()
 
-    main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", section="postgresql")
+    main_quarter(start_from_symbol=None, db_init_file="database_v2.ini", section="postgresql")
     print(f"The following symbols failed: {symbols_with_failure}")
