@@ -409,8 +409,6 @@ def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", sec
                 start_time = time.time()
 
             symbol = value_dict["ticker"]
-            if symbol != "ADBE":  # TODO: DEBUG ONLY DO NOT MERGE
-                continue
             if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
                 start_flag = True
             elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
