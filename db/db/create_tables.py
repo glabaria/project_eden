@@ -1,4 +1,5 @@
 import psycopg2
+import datetime
 from psycopg2 import sql
 
 from typing import Optional, Tuple
@@ -195,11 +196,30 @@ DEFAULT_SHARES_COLUMNS_TO_TYPE = {
     "numberofshares": "bigint"
 }
 
-FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES = {
-    "numberOfShares": "numberofshares"
-}
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES = {x: x.lower() for x in DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.keys()}
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update({x: x.lower() for x in DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()})
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update({x: x.lower() for x in DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.keys()})
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update({x: x.lower() for x in DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()})
 
 POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES = {x: y for y, x in FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.items()}
+
+POSTGRES_TYPE_TO_PYTHON_TYPE = {
+    "serial": int,
+    "int": int,
+    "bigint": int,
+    "smallint": int,
+    "text": str,
+    "date": datetime.date,
+    "timestamp": datetime.date,
+    "real": float,
+    "bool": bool
+}
+
+
+def postgres_type_to_python_type(column_name: str) -> type:
+    x = DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.get(column_name) or DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name) or \
+        DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.get(column_name) or DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
+    return POSTGRES_TYPE_TO_PYTHON_TYPE[x]
 
 
 def create_company_table(connection: psycopg2.connect, command: Optional[str] = None,
