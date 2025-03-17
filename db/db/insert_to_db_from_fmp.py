@@ -422,7 +422,7 @@ def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", sec
 
 
 if __name__ == "__main__":
-    with open("key.txt") as f:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "key.txt")) as f:
         key = f.readlines()[0]
 
     symbols_with_failure = []
@@ -433,5 +433,6 @@ if __name__ == "__main__":
     # add_full_company_information(start_from_symbol="FCX")
     # add_shares()
 
-    main_quarter(start_from_symbol=None, db_init_file="database_v2.ini", section="postgresql")
+    db_init_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database_v2.ini")
+    main_quarter(start_from_symbol=None, db_init_file=db_init_file, section="postgresql")
     print(f"The following symbols failed: {symbols_with_failure}")
