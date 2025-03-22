@@ -113,6 +113,10 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
                 # Fetch new data from API
                 new_data_df = gather_dataset(symbol, dataset.value, key, **kwargs)
 
+                if new_data_df.empty:
+                    print(f"--No new data found for {symbol} in {table_name}, skipping.")
+                    continue
+
                 # Standardize column names to match database
                 new_data_df.rename(columns=FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, inplace=True)
                 columns_to_compare = [FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col) for col in dataset_to_table_columns[dataset]
