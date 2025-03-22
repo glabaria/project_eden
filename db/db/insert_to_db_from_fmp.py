@@ -29,6 +29,7 @@ class Datasets(Enum):
     BALANCE_SHEET_STATEMENT = BALANCE_SHEET_STATEMENT
     CASH_FLOW_STATEMENT = CASH_FLOW_STATEMENT
     ENTERPRISE_VALUES = ENTERPRISE_VALUES
+    PROFILE = PROFILE
 
 
 dataset_to_table_name = {
@@ -43,6 +44,7 @@ dataset_to_table_name_quarter = {
     Datasets.INCOME_STATEMENT: "income_statement_quarter",
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_quarter",
     Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_quarter",
+    Datasets.PROFILE: "company"
 }
 
 
@@ -50,7 +52,8 @@ dataset_to_table_columns = {
     Datasets.INCOME_STATEMENT: list(DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()),
     Datasets.BALANCE_SHEET_STATEMENT: list(DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.keys()),
     Datasets.CASH_FLOW_STATEMENT: list(DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()),
-    Datasets.ENTERPRISE_VALUES: list(DEFAULT_SHARES_COLUMNS_TO_TYPE.keys())
+    Datasets.ENTERPRISE_VALUES: list(DEFAULT_SHARES_COLUMNS_TO_TYPE.keys()),
+    Datasets.PROFILE: list(DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.keys())
 }
 
 
@@ -99,13 +102,6 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
 
     try:
         with connection.cursor() as cursor:
-            cursor.execute(f"SELECT * FROM company WHERE symbol = '{symbol}'")
-            is_exist = cursor.fetchone()
-
-            if not is_exist:
-                print(f"--Inserting {symbol} to company table.")
-                insert_record(cursor, "company", ["symbol"], [symbol])
-
             for dataset in datasets:
                 table_name = dataset_to_table_name_to_use[dataset]
                 print(f"--Processing {symbol} for {table_name} table.")
@@ -137,7 +133,10 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
                                                columns=[desc[0] for desc in cursor.description])
 
                     # Identify records to update or insert
-                    merge_keys = ['calendaryear', 'period'] if 'period' in new_data_df.columns else ['calendaryear']
+                    if dataset == Datasets.PROFILE:
+                        merge_keys = ['symbol']
+                    else:
+                        merge_keys = ['calendaryear', 'period'] if 'period' in new_data_df.columns else ['calendaryear']
                     comparison = new_data_df.merge(
                         existing_df[columns_to_compare],
                         on=merge_keys,
@@ -421,7 +420,7 @@ def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", sec
 
             if start_flag:
                 print(f"Processing {symbol}")
-                add_datasets_to_db(connection, symbol, datasets=[Datasets.INCOME_STATEMENT, Datasets.CASH_FLOW_STATEMENT, Datasets.BALANCE_SHEET_STATEMENT], period="quarter")
+                add_datasets_to_db(connection, symbol, datasets=[Datasets.PROFILE, Datasets.INCOME_STATEMENT, Datasets.CASH_FLOW_STATEMENT, Datasets.BALANCE_SHEET_STATEMENT], period="quarter")
                 counter += 1
 
 
