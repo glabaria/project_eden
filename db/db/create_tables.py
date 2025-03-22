@@ -216,7 +216,8 @@ POSTGRES_TYPE_TO_PYTHON_TYPE = {
 }
 
 
-def postgres_type_to_python_type(column_name: str) -> type:
+def postgres_type_to_python_type(column_name: str, is_postgres_column_name: bool = True) -> type:
+    column_name = column_name if  not is_postgres_column_name else POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES[column_name]
     x = DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.get(column_name) or DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name) or \
         DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.get(column_name) or DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
     return POSTGRES_TYPE_TO_PYTHON_TYPE[x]
