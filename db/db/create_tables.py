@@ -33,7 +33,11 @@ DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE = {
     "isEtf": "bool",
     "isActivelyTrading": "bool",
     "isAdr": "bool",
-    "isFund": "bool"
+    "isFund": "bool",
+    "price": "real",
+    "mktCap": "bigint",
+    "beta": "real",
+    "lastDiv": "real",
 }
 
 
