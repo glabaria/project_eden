@@ -4,6 +4,7 @@ import json
 import time
 import os
 import datetime
+import ssl
 from enum import Enum
 from typing import Optional
 from urllib.request import urlopen
@@ -84,7 +85,8 @@ def get_jsonparsed_data(dataset_name: str, ticker: str, key: str,
     url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
     for key, value in kwargs.items():
         url += f"&{key}={value}"
-    response = urlopen(url, cafile=certifi.where())
+    context = ssl.create_default_context(cafile=certifi.where())
+    response = urlopen(url, context=context)
     data = response.read().decode("utf-8")
     return json.loads(data)
 
