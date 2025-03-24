@@ -4,7 +4,7 @@ import numpy as np
 from configparser import ConfigParser
 
 
-def load_config(filename='database_v2.ini', section='postgresql'):
+def load_config(filename="database_v2.ini", section="postgresql"):
     parser = ConfigParser()
     parser.read(filename)
     config = {}
@@ -13,7 +13,7 @@ def load_config(filename='database_v2.ini', section='postgresql'):
         for param in params:
             config[param[0]] = param[1]
     else:
-        raise Exception(f'Section {section} not found in the {filename} file')
+        raise Exception(f"Section {section} not found in the {filename} file")
     return config
 
 
@@ -27,7 +27,7 @@ def connect(config):
 
 
 def insert_record(cursor, table_name, columns, values):
-    placeholders = ', '.join(['%s'] * len(columns))  # Create placeholders for each column
+    placeholders = ", ".join(["%s"] * len(columns))  # Create placeholders for each column
     command = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
     cursor.execute(command, tuple(values))
 
@@ -40,7 +40,7 @@ def insert_records_from_df(cursor, df: pd.DataFrame, table_name):
 
 
 def insert_record_with_company_id(cursor, table_name, columns, values):
-    placeholders = ', '.join(['%s'] * len(columns))  # Create placeholders for each column
+    placeholders = ", ".join(["%s"] * len(columns))  # Create placeholders for each column
 
     if "company_id" in columns:
         raise ValueError("company_id exists in columns, this is a foreign key")
@@ -48,8 +48,10 @@ def insert_record_with_company_id(cursor, table_name, columns, values):
         raise ValueError("symbol not found in columns")
     symbol_value = [values.values[ind] for ind, column in enumerate(columns) if column == "symbol"]
     symbol_value = symbol_value[0]
-    command = (f"INSERT INTO {table_name} ({'company_id, ' + ', '.join(columns)}) "
-               f"VALUES ((SELECT c.id FROM company c WHERE c.symbol = '{symbol_value}'), {placeholders})")
+    command = (
+        f"INSERT INTO {table_name} ({'company_id, ' + ', '.join(columns)}) "
+        f"VALUES ((SELECT c.id FROM company c WHERE c.symbol = '{symbol_value}'), {placeholders})"
+    )
     try:
         cursor.execute(command, tuple(values))
     except psycopg2.errors.NotNullViolation:
@@ -65,13 +67,15 @@ def insert_records_from_df_given_symbol(cursor, df: pd.DataFrame, table_name, sy
 
 
 def insert_record_given_symbol(cursor, table_name, symbol, columns, values):
-    placeholders = ', '.join(['%s'] * len(columns))  # Create placeholders for each column
+    placeholders = ", ".join(["%s"] * len(columns))  # Create placeholders for each column
 
     if "company_id" in columns:
         raise ValueError("company_id exists in columns, this is a foreign key")
 
-    command = (f"INSERT INTO {table_name} ({'company_id, ' + ', '.join(columns)}) "
-               f"VALUES ((SELECT c.id FROM company c WHERE c.symbol = '{symbol}'), {placeholders})")
+    command = (
+        f"INSERT INTO {table_name} ({'company_id, ' + ', '.join(columns)}) "
+        f"VALUES ((SELECT c.id FROM company c WHERE c.symbol = '{symbol}'), {placeholders})"
+    )
     try:
         cursor.execute(command, tuple(values))
     except psycopg2.errors.NotNullViolation:
@@ -79,15 +83,37 @@ def insert_record_given_symbol(cursor, table_name, symbol, columns, values):
         cursor.execute(command)
 
 
-def update_column_target_symbol(table_name, target_column, value_to_set, target_symbol):
+def update_column_target_symbol(
+    table_name, target_column, value_to_set, target_symbol, cursor=None
+):
     command = f"UPDATE {table_name} SET {target_column} = %s WHERE symbol = %s"
-    config = load_config()  # Load your database configuration
+    updated_row_count = 0
+
     try:
-        with psycopg2.connect(**config) as conn:
-            with conn.cursor() as cur:
-                cur.execute(command, (value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set), target_symbol))
-                updated_row_count = cur.rowcount
-                conn.commit()
+        if cursor:
+            # Use the provided cursor instance
+            cursor.execute(
+                command,
+                (
+                    value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set),
+                    target_symbol,
+                ),
+            )
+            updated_row_count = cursor.rowcount
+        else:
+            # Create a new connection and cursor
+            config = load_config()  # Load your database configuration
+            with psycopg2.connect(**config) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        command,
+                        (
+                            value_to_set if type(value_to_set) != np.bool_ else bool(value_to_set),
+                            target_symbol,
+                        ),
+                    )
+                    updated_row_count = cur.rowcount
+                    conn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     finally:
