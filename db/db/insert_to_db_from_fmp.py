@@ -478,13 +478,20 @@ def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", sec
         start_time = time.time()
 
         for value_dict in ticker_dict.values():
+            # Check if we need to throttle API calls
             current_time = time.time()
             elapsed_time = current_time - start_time
 
-            if counter >= api_limit_per_min:
+            # If we've reached the limit but less than a minute has passed
+            if counter >= api_limit_per_min and elapsed_time < 60:
                 sleep_time = 60 - elapsed_time
                 if sleep_time > 0:
+                    print(f"Rate limit reached. Sleeping for {sleep_time:.2f} seconds...")
                     time.sleep(sleep_time)
+                counter = 0
+                start_time = time.time()
+            # If a minute or more has passed, reset counter and timer
+            elif elapsed_time >= 60:
                 counter = 0
                 start_time = time.time()
 
