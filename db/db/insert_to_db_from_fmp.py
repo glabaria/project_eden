@@ -7,7 +7,8 @@ import datetime
 import ssl
 from enum import Enum
 from typing import Optional
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError
 
 from db.utils import (
     load_config,
@@ -456,6 +457,28 @@ def main(start_from_symbol=None):
                 counter += 1
 
 
+def get_company_tickers():
+    """Fetch the latest company tickers JSON from SEC website"""
+    url = "https://www.sec.gov/files/company_tickers.json"
+    headers = {
+        'User-Agent': '123 (123@gmail.com)',  # FIXME: add to config
+    }
+
+    try:
+        req = Request(url, headers=headers)
+        context = ssl.create_default_context(cafile=certifi.where())
+        response = urlopen(req, context=context)
+        data = response.read().decode("utf-8")
+        return json.loads(data)
+    except HTTPError as e:
+        print(f"Error fetching company tickers: {e}")
+        print("Falling back to local file...")
+        # Fallback to local file
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")) as user_file:
+            file_contents = user_file.read()
+            return json.loads(file_contents)
+
+
 def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", section="postgresql"):
     db_config = load_config(filename=db_init_file, section=section)
 
@@ -465,12 +488,7 @@ def main_quarter(start_from_symbol=None, db_init_file="database_dev_v2.ini", sec
         else:
             raise ValueError(f"Failed to connect to db: {db_config}")
 
-        # get latest from https://www.sec.gov/files/company_tickers.json
-        with open(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")
-        ) as user_file:
-            file_contents = user_file.read()
-            ticker_dict = json.loads(file_contents)
+        ticker_dict = get_company_tickers()
 
         counter = 0
         api_limit_per_min = 300
