@@ -13,16 +13,12 @@ from urllib.error import HTTPError
 from db.utils import (
     load_config,
     connect,
-    insert_record,
     insert_records_from_df,
-    update_column_target_symbol,
-    insert_records_from_df_given_symbol,
 )
 from db.create_tables import (
     DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
     DEFAULT_SHARES_COLUMNS_TO_TYPE,
     FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES,
-    POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES,
     DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
     DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
     DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
@@ -68,12 +64,6 @@ dataset_to_table_columns = {
     Datasets.ENTERPRISE_VALUES: list(DEFAULT_SHARES_COLUMNS_TO_TYPE.keys()),
     Datasets.PROFILE: list(DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.keys()),
 }
-
-
-# def insert_to_db_from_fmp(table_name, columns, values):
-#     placeholders = ', '.join(['%s'] * len(columns))  # Create placeholders for each column
-#     command = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
-#     cursor.execute(command, tuple(values))
 
 
 def get_jsonparsed_data(
@@ -306,157 +296,6 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
         symbols_with_failure.append(symbol)
 
 
-def add_dataset_to_db(connection, symbol, dataset, table_name, columns_to_add):
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(f"SELECT id FROM company WHERE symbol = '{symbol}'")
-            company_id = cursor.fetchall()
-            if company_id is None:
-                print(f"--Inserting {symbol} to company table.")
-                insert_record(cursor, "company", ["symbol"], [symbol])
-
-            print(f"--Inserting {symbol} for {table_name} table.")
-            dataset_df = gather_dataset(symbol, dataset.value, key)
-            dataset_df = dataset_df[
-                [POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES.get(x, x) for x in columns_to_add]
-            ]
-            dataset_df.rename(columns=FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, inplace=True)
-            insert_records_from_df_given_symbol(cursor, dataset_df, table_name, symbol)
-        connection.commit()
-        print(f"{symbol} insertion complete.")
-        print("")
-    except Exception as e:
-        print(f"Error processing {symbol}: {e}")
-        connection.rollback()
-        symbols_with_failure.append(symbol)
-
-
-def add_full_company_information(start_from_symbol=None):
-    db_config = load_config()
-
-    with connect(db_config) as connection:
-        if connection:
-            print("Connected successfully!")
-        else:
-            raise ValueError(f"Failed to connect to db: {db_config}")
-
-        with open("/db/db/company_tickers.json") as user_file:
-            file_contents = user_file.read()
-            ticker_dict = json.loads(file_contents)
-
-        counter = 1
-        limit_per_min = 300 / 1
-        start_flag = True if start_from_symbol is None else False
-        for value_dict in ticker_dict.values():
-            if counter >= limit_per_min / 2:
-                time.sleep(60)
-                counter = 1
-
-            symbol = value_dict["ticker"]
-            if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
-                start_flag = True
-            elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
-                print(f"Have not yet encountered {start_from_symbol}, skipping {symbol}.")
-                continue
-
-            if start_flag:
-                print(f"Processing {symbol}")
-                try:
-                    dataset_df = gather_dataset(symbol, PROFILE, key)
-                    for column in dataset_df.columns.values:
-                        if (
-                            column.lower() in DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE
-                            and column not in ["symbol", "id"]
-                        ):
-                            update_column_target_symbol(
-                                "company", column.lower(), dataset_df[column].values[0], symbol
-                            )
-                except:
-                    connection.rollback()
-                    symbols_with_failure.append(symbol)
-                counter += 1
-
-
-def add_shares(start_from_symbol=None):
-    db_config = load_config()
-
-    with connect(db_config) as connection:
-        if connection:
-            print("Connected successfully!")
-        else:
-            raise ValueError(f"Failed to connect to db: {db_config}")
-
-        # get latest from https://www.sec.gov/files/company_tickers.json
-        with open(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")
-        ) as user_file:
-            file_contents = user_file.read()
-            ticker_dict = json.loads(file_contents)
-
-        counter = 1
-        limit_per_min = 300
-        start_flag = True if start_from_symbol is None else False
-        for value_dict in ticker_dict.values():
-            if counter >= limit_per_min:
-                time.sleep(60)
-                counter = 1
-
-            symbol = value_dict["ticker"]
-            if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
-                start_flag = True
-            elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
-                print(f"Have not yet encountered {start_from_symbol}, skipping {symbol}.")
-                continue
-
-            if start_flag:
-                print(f"Processing {symbol}")
-                add_dataset_to_db(
-                    connection,
-                    symbol,
-                    Datasets.ENTERPRISE_VALUES,
-                    "shares_fy",
-                    [x for x in DEFAULT_SHARES_COLUMNS_TO_TYPE if x != "company_id"],
-                )
-                counter += 1
-
-
-def main(start_from_symbol=None):
-    db_config = load_config()
-
-    with connect(db_config) as connection:
-        if connection:
-            print("Connected successfully!")
-        else:
-            raise ValueError(f"Failed to connect to db: {db_config}")
-
-        # get latest from https://www.sec.gov/files/company_tickers.json
-        with open(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")
-        ) as user_file:
-            file_contents = user_file.read()
-            ticker_dict = json.loads(file_contents)
-
-        counter = 1
-        limit_per_min = 300 / len(Datasets)
-        start_flag = True if start_from_symbol is None else False
-        for value_dict in ticker_dict.values():
-            if counter >= limit_per_min:
-                time.sleep(60)
-                counter = 1
-
-            symbol = value_dict["ticker"]
-            if not start_flag and start_from_symbol is not None and start_from_symbol == symbol:
-                start_flag = True
-            elif not start_flag and start_from_symbol is not None and start_from_symbol != symbol:
-                print(f"Have not yet encountered {start_from_symbol}, skipping {symbol}.")
-                continue
-
-            if start_flag:
-                print(f"Processing {symbol}")
-                add_datasets_to_db(connection, symbol)
-                counter += 1
-
-
 def get_company_tickers():
     """Fetch the latest company tickers JSON from SEC website"""
     url = "https://www.sec.gov/files/company_tickers.json"
@@ -541,12 +380,6 @@ if __name__ == "__main__":
         key = f.readlines()[0]
 
     symbols_with_failure = []
-
-    # main(start_from_symbol=None)
-    # print(f"The following symbols failed: {symbols_with_failure}")
-
-    # add_full_company_information(start_from_symbol="FCX")
-    # add_shares()
 
     db_init_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database_v2.ini")
     main_quarter(start_from_symbol=None, db_init_file=db_init_file, section="postgresql")
