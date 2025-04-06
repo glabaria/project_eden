@@ -454,26 +454,21 @@ def should_update_value(new_val, old_val, col):
         # Handle numeric comparisons
         elif isinstance(new_val, (int, float)) and isinstance(old_val, (int, float)):
             try:
-                # Convert to strings first to handle precision properly
-                new_str = str(new_val)
-                old_str = str(old_val)
+                # Convert both to float for consistent comparison
+                new_float = float(new_val)
+                old_float = float(old_val)
 
-                # Get decimal precision (digits after decimal point)
-                new_precision = len(new_str.split('.')[-1]) if '.' in new_str else 0
-                old_precision = len(old_str.split('.')[-1]) if '.' in old_str else 0
+                # For very small values, use absolute difference
+                if abs(new_float) < 1e-10 and abs(old_float) < 1e-10:
+                    return abs(new_float - old_float) > 1e-10
 
-                # Use the lower precision for comparison
-                min_precision = min(new_precision, old_precision)
+                # For PostgreSQL numeric/decimal fields, round to 5 decimal places
+                # This matches PostgreSQL's typical numeric precision
+                new_rounded = round(new_float, 4)
+                old_rounded = round(old_float, 4)
 
-                # Truncate to the minimum precision instead of rounding
-                factor = 10 ** min_precision
-                new_float_trunc = math.trunc(float(new_val) * factor) / factor
-                old_float_trunc = math.trunc(float(old_val) * factor) / factor
-
-                new_float_round = round(float(new_val), min_precision)
-                old_float_round = round(float(old_val), min_precision)
-
-                return (new_float_trunc != old_float_trunc) and (new_float_round != old_float_round)
+                # Compare the rounded values
+                return new_rounded != old_rounded
             except (ValueError, TypeError):
                 return True
         # Direct comparison
@@ -512,7 +507,7 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
     )
     updated_records_str = ",\n".join(
         [
-            f"{key} = '{row[key + '_y']}' -> {key} = '{row[key + '_x']}'"
+            f"{key} = '{row[key + '_y']}' -> {key} = '{update_values[key]}'"
             for key in update_values.keys()
         ]
     )
