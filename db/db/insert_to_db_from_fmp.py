@@ -7,12 +7,11 @@ import datetime
 import ssl
 import math
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict, Any
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 
 from db.utils import (
-    load_config,
     connect,
     insert_records_from_df,
 )
@@ -70,8 +69,9 @@ dataset_to_table_columns = {
 def get_jsonparsed_data(
     dataset_name: str,
     ticker: str,
-    key: str,
-    base_url: str = "https://financialmodelingprep.com/api/v3",
+    key: str = None,
+    base_url: str = None,
+    config: Dict[str, Any] = None,
     **kwargs,
 ) -> dict:
     """
@@ -83,10 +83,12 @@ def get_jsonparsed_data(
         The name of the dataset to retrieve
     ticker : str
         The stock ticker symbol
-    key : str
-        The API key for authentication
-    base_url : str, default="https://financialmodelingprep.com/api/v3"
-        The base URL for the API
+    key : str, optional
+        The API key for authentication. If None, uses the key from config
+    base_url : str, optional
+        The base URL for the API. If None, uses the URL from config
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
     **kwargs
         Additional query parameters to include in the URL
 
@@ -95,6 +97,14 @@ def get_jsonparsed_data(
     dict
         The parsed JSON response from the API
     """
+    if config is None:
+        config = load_config()
+
+    if key is None:
+        key = config["api"]["key"]
+
+    if base_url is None:
+        base_url = config["api"]["base_url"]
     url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
     for key, value in kwargs.items():
         url += f"&{key}={value}"
@@ -105,7 +115,7 @@ def get_jsonparsed_data(
 
 
 def gather_dataset(
-    ticker: str, dataset: str, key: str, period: Optional[str] = None, **kwargs
+    ticker: str, dataset: str, key: str = None, period: Optional[str] = None, config: Dict[str, Any] = None, **kwargs
 ) -> pd.DataFrame:
     """
     Gather dataset from the financial API and convert to DataFrame.
@@ -116,10 +126,12 @@ def gather_dataset(
         The stock ticker symbol
     dataset : str
         The dataset name to retrieve
-    key : str
-        The API key for authentication
+    key : str, optional
+        The API key for authentication. If None, uses the key from config
     period : str, optional
         The period to retrieve (e.g., "quarter" or "fy")
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
     **kwargs
         Additional parameters to pass to the API
 
@@ -135,11 +147,11 @@ def gather_dataset(
         if kwargs is not None
         else {}
     )
-    json_data = get_jsonparsed_data(dataset, ticker, key, **kwargs_to_use)
+    json_data = get_jsonparsed_data(dataset, ticker, key, config=config, **kwargs_to_use)
     return pd.DataFrame.from_records(json_data)
 
 
-def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, **kwargs):
+def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, config=None, **kwargs):
     """
     Add datasets for a symbol to the database.
 
@@ -152,12 +164,19 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
     datasets : list
         List of datasets to process
     key : str, optional
-        API key for the financial data provider
+        API key for the financial data provider. If None, uses the key from config
     failure_list : list, optional
         List to append failed symbols to
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
     **kwargs
         Additional arguments for dataset gathering
     """
+    if config is None:
+        config = load_config()
+
+    if key is None:
+        key = config["api"]["key"]
     datasets = Datasets if datasets is None else datasets
     period = kwargs.get("period", "fy")
     dataset_to_table_name_to_use = (
@@ -171,7 +190,7 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
                 print(f"--Processing {symbol} for {table_name} table.")
 
                 # Fetch new data from API
-                new_data_df = gather_dataset(symbol, dataset.value, key, **kwargs)
+                new_data_df = gather_dataset(symbol, dataset.value, key, config=config, **kwargs)
 
                 if new_data_df.empty:
                     print(f"--No new data found for {symbol} in {table_name}, skipping.")
@@ -512,9 +531,14 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
     cursor.execute(update_sql, list(update_values.values()))
 
 
-def get_company_tickers():
+def get_company_tickers(config=None):
     """
     Fetch the latest company tickers JSON from SEC website.
+
+    Parameters
+    ----------
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
 
     Returns
     -------
@@ -525,9 +549,12 @@ def get_company_tickers():
     -----
     Falls back to a local file if the SEC website is unavailable
     """
+    if config is None:
+        config = load_config()
+
     url = "https://www.sec.gov/files/company_tickers.json"
     headers = {
-        'User-Agent': '123 (123@gmail.com)',  # FIXME: add to config
+        'User-Agent': config["api"]["user_agent"],
     }
 
     try:
@@ -540,28 +567,30 @@ def get_company_tickers():
         print(f"Error fetching company tickers: {e}")
         print("Falling back to local file...")
         # Fallback to local file
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_tickers.json")) as user_file:
+        fallback_file = config["paths"]["company_tickers_json"]
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), fallback_file)) as user_file:
             file_contents = user_file.read()
             return json.loads(file_contents)
 
 
-def connect_to_database(db_init_file="database_dev_v2.ini", section="postgresql"):
+def connect_to_database(config=None):
     """
-    Establish a connection to the database.
+    Establish a connection to the database using configuration from JSON.
 
     Parameters
     ----------
-    db_init_file : str, default="database_dev_v2.ini"
-        Path to the database configuration file
-    section : str, default="postgresql"
-        Section in the configuration file to use
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
 
     Returns
     -------
     connection
         A database connection object
     """
-    db_config = load_config(filename=db_init_file, section=section)
+    if config is None:
+        config = load_config()
+
+    db_config = config["database"]
     connection = connect(db_config)
 
     if connection:
@@ -571,7 +600,7 @@ def connect_to_database(db_init_file="database_dev_v2.ini", section="postgresql"
         raise ValueError(f"Failed to connect to db: {db_config}")
 
 
-def handle_rate_limiting(counter, start_time, api_limit_per_min=300):
+def handle_rate_limiting(counter, start_time, config=None):
     """
     Handle API rate limiting by sleeping if necessary.
 
@@ -581,14 +610,18 @@ def handle_rate_limiting(counter, start_time, api_limit_per_min=300):
         Current count of API calls
     start_time : float
         Time when counting started
-    api_limit_per_min : int, default=300
-        Maximum API calls allowed per minute
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
 
     Returns
     -------
     tuple
         Updated counter and start_time
     """
+    if config is None:
+        config = load_config()
+
+    api_limit_per_min = config["api"]["rate_limit_per_min"]
     current_time = time.time()
     elapsed_time = current_time - start_time
 
@@ -608,7 +641,7 @@ def handle_rate_limiting(counter, start_time, api_limit_per_min=300):
     return counter, start_time
 
 
-def process_symbol(connection, symbol, api_key, failure_list=None, period="quarter"):
+def process_symbol(connection, symbol, api_key=None, failure_list=None, period="quarter", config=None):
     """
     Process a single symbol by adding its datasets to the database.
 
@@ -618,13 +651,20 @@ def process_symbol(connection, symbol, api_key, failure_list=None, period="quart
         Database connection
     symbol : str
         Stock symbol to process
-    api_key : str
-        API key for the financial data provider
+    api_key : str, optional
+        API key for the financial data provider. If None, uses the key from config
     failure_list : list, optional
         List to append failed symbols to
     period : str, default="quarter"
         Data period ("quarter" or "fy")
+    config : Dict[str, Any], optional
+        Configuration dictionary. If None, loads from config.json
     """
+    if config is None:
+        config = load_config()
+
+    if api_key is None:
+        api_key = config["api"]["key"]
     print(f"Processing {symbol}")
     add_datasets_to_db(
         connection,
@@ -638,35 +678,40 @@ def process_symbol(connection, symbol, api_key, failure_list=None, period="quart
         period=period,
         key=api_key,
         failure_list=failure_list,
+        config=config,
     )
 
 
-def main_quarter(api_key, db_init_file="database_dev_v2.ini", section="postgresql"):
+def main_quarter(api_key=None, config_file="config.json"):
     """
     Main function to process quarterly financial data for all companies.
 
     Parameters
     ----------
-    api_key : str
-        API key for the financial data provider
-    db_init_file : str, default="database_dev_v2.ini"
-        Path to the database configuration file
-    section : str, default="postgresql"
-        Section in the configuration file to use
+    api_key : str, optional
+        API key for the financial data provider. If None, uses the key from config
+    config_file : str, default="config.json"
+        Path to the JSON configuration file
 
     Returns
     -------
     list
         List of symbols that failed processing
     """
+    # Load configuration
+    config = load_config(config_file)
     # Initialize list to track failures
     symbols_with_failure = []
 
     # Connect to the database
-    connection = connect_to_database(db_init_file, section)
+    connection = connect_to_database(config)
+
+    # If api_key is not provided, use the one from config
+    if api_key is None:
+        api_key = config["api"]["key"]
 
     # Get company tickers
-    ticker_dict = get_company_tickers()
+    ticker_dict = get_company_tickers(config)
 
     # Initialize rate limiting variables
     counter = 0
@@ -675,44 +720,41 @@ def main_quarter(api_key, db_init_file="database_dev_v2.ini", section="postgresq
     # Process each symbol
     for value_dict in ticker_dict.values():
         # Handle API rate limiting
-        counter, start_time = handle_rate_limiting(counter, start_time)
+        counter, start_time = handle_rate_limiting(counter, start_time, config)
 
         # Process the current symbol
         symbol = value_dict["ticker"]
-        process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter")
+        process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
         counter += 1
 
     return symbols_with_failure
 
 
-def load_api_key(key_file="key.txt"):
+def load_config(config_file="config.json") -> Dict[str, Any]:
     """
-    Load the API key from a file.
+    Load configuration from a JSON file.
 
     Parameters
     ----------
-    key_file : str, default="key.txt"
-        Path to the file containing the API key
+    config_file : str, default="config.json"
+        Path to the JSON configuration file
 
     Returns
     -------
-    str
-        The API key as a string
+    Dict[str, Any]
+        Dictionary containing the configuration
     """
-    key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), key_file)
-    with open(key_path) as f:
-        return f.readlines()[0].strip()
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config_file)
+    with open(config_path, 'r') as f:
+        return json.load(f)
 
 
 if __name__ == "__main__":
-    # Load API key
-    api_key = load_api_key()
-
-    # Set up database configuration
-    db_init_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database_v2.ini")
+    # Load configuration
+    config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
     # Run the main function
-    failed_symbols = main_quarter(api_key, db_init_file=db_init_file, section="postgresql")
+    failed_symbols = main_quarter(config_file=config_file)
 
     # Print any failures
     print(f"The following symbols failed: {failed_symbols}")
