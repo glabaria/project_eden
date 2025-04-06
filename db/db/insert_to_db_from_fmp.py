@@ -79,15 +79,21 @@ def get_jsonparsed_data(
 
     Parameters
     ----------
-    dataset_name
-    base_url : str
-    ticker
-    key
-    **kwargs:
+    dataset_name : str
+        The name of the dataset to retrieve
+    ticker : str
+        The stock ticker symbol
+    key : str
+        The API key for authentication
+    base_url : str, default="https://financialmodelingprep.com/api/v3"
+        The base URL for the API
+    **kwargs
+        Additional query parameters to include in the URL
 
     Returns
     -------
     dict
+        The parsed JSON response from the API
     """
     url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
     for key, value in kwargs.items():
@@ -101,6 +107,27 @@ def get_jsonparsed_data(
 def gather_dataset(
     ticker: str, dataset: str, key: str, period: Optional[str] = None, **kwargs
 ) -> pd.DataFrame:
+    """
+    Gather dataset from the financial API and convert to DataFrame.
+
+    Parameters
+    ----------
+    ticker : str
+        The stock ticker symbol
+    dataset : str
+        The dataset name to retrieve
+    key : str
+        The API key for authentication
+    period : str, optional
+        The period to retrieve (e.g., "quarter" or "fy")
+    **kwargs
+        Additional parameters to pass to the API
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame containing the retrieved data
+    """
     kwargs_to_use = (
         dict(period=period, **kwargs)
         if period is not None
@@ -113,15 +140,23 @@ def gather_dataset(
 
 
 def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, **kwargs):
-    """Add datasets for a symbol to the database.
+    """
+    Add datasets for a symbol to the database.
 
-    Args:
-        connection: Database connection
-        symbol: Stock symbol to process
-        datasets: List of datasets to process
-        key: API key for the financial data provider
-        failure_list: List to append failed symbols to
-        **kwargs: Additional arguments for dataset gathering
+    Parameters
+    ----------
+    connection
+        Database connection
+    symbol : str
+        Stock symbol to process
+    datasets : list
+        List of datasets to process
+    key : str, optional
+        API key for the financial data provider
+    failure_list : list, optional
+        List to append failed symbols to
+    **kwargs
+        Additional arguments for dataset gathering
     """
     datasets = Datasets if datasets is None else datasets
     period = kwargs.get("period", "fy")
@@ -167,12 +202,17 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
 
 
 def get_columns_to_compare(dataset):
-    """Get the columns to compare for a given dataset.
+    """
+    Get the columns to compare for a given dataset.
 
-    Args:
-        dataset: The dataset to get columns for
+    Parameters
+    ----------
+    dataset
+        The dataset to get columns for
 
-    Returns:
+    Returns
+    -------
+    list
         A list of column names to compare
     """
     columns_to_compare = [
@@ -184,15 +224,23 @@ def get_columns_to_compare(dataset):
 
 
 def process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare, dataset):
-    """Process a dataset by either updating existing records or inserting new ones.
+    """
+    Process a dataset by either updating existing records or inserting new ones.
 
-    Args:
-        cursor: Database cursor
-        symbol: Stock symbol being processed
-        table_name: Name of the database table
-        new_data_df: DataFrame containing new data
-        columns_to_compare: List of columns to compare
-        dataset: The dataset being processed
+    Parameters
+    ----------
+    cursor
+        Database cursor
+    symbol : str
+        Stock symbol being processed
+    table_name : str
+        Name of the database table
+    new_data_df : DataFrame
+        DataFrame containing new data
+    columns_to_compare : list
+        List of columns to compare
+    dataset
+        The dataset being processed
     """
     # Fetch existing data from database
     cursor.execute(f"SELECT * FROM {table_name} WHERE symbol = '{symbol}'")
@@ -209,16 +257,25 @@ def process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare,
 
 def process_existing_records(cursor, symbol, table_name, new_data_df,
                            columns_to_compare, existing_records, dataset):
-    """Process records when there are existing entries in the database.
+    """
+    Process records when there are existing entries in the database.
 
-    Args:
-        cursor: Database cursor
-        symbol: Stock symbol being processed
-        table_name: Name of the database table
-        new_data_df: DataFrame containing new data
-        columns_to_compare: List of columns to compare
-        existing_records: Existing records from the database
-        dataset: The dataset being processed
+    Parameters
+    ----------
+    cursor
+        Database cursor
+    symbol : str
+        Stock symbol being processed
+    table_name : str
+        Name of the database table
+    new_data_df : DataFrame
+        DataFrame containing new data
+    columns_to_compare : list
+        List of columns to compare
+    existing_records : list
+        Existing records from the database
+    dataset
+        The dataset being processed
     """
     # Convert existing records to DataFrame
     existing_df = pd.DataFrame(
@@ -242,13 +299,19 @@ def process_existing_records(cursor, symbol, table_name, new_data_df,
 
 
 def get_merge_keys(dataset, new_data_df):
-    """Determine the merge keys based on the dataset.
+    """
+    Determine the merge keys based on the dataset.
 
-    Args:
-        dataset: The dataset being processed
-        new_data_df: DataFrame containing new data
+    Parameters
+    ----------
+    dataset
+        The dataset being processed
+    new_data_df : DataFrame
+        DataFrame containing new data
 
-    Returns:
+    Returns
+    -------
+    list
         A list of column names to use as merge keys
     """
     if dataset == Datasets.PROFILE:
@@ -258,15 +321,23 @@ def get_merge_keys(dataset, new_data_df):
 
 
 def process_new_records(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
-    """Process records that exist in the new data but not in the database.
+    """
+    Process records that exist in the new data but not in the database.
 
-    Args:
-        cursor: Database cursor
-        symbol: Stock symbol being processed
-        table_name: Name of the database table
-        comparison: DataFrame containing comparison results
-        columns_to_compare: List of columns to compare
-        merge_keys: List of columns used as merge keys
+    Parameters
+    ----------
+    cursor
+        Database cursor
+    symbol : str
+        Stock symbol being processed
+    table_name : str
+        Name of the database table
+    comparison : DataFrame
+        DataFrame containing comparison results
+    columns_to_compare : list
+        List of columns to compare
+    merge_keys : list
+        List of columns used as merge keys
     """
     new_records = comparison[comparison["_merge"] == "left_only"]
     if not new_records.empty:
@@ -286,15 +357,23 @@ def process_new_records(cursor, symbol, table_name, comparison, columns_to_compa
 
 
 def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
-    """Process records that exist in both datasets but may have different values.
+    """
+    Process records that exist in both datasets but may have different values.
 
-    Args:
-        cursor: Database cursor
-        symbol: Stock symbol being processed
-        table_name: Name of the database table
-        comparison: DataFrame containing comparison results
-        columns_to_compare: List of columns to compare
-        merge_keys: List of columns used as merge keys
+    Parameters
+    ----------
+    cursor
+        Database cursor
+    symbol : str
+        Stock symbol being processed
+    table_name : str
+        Name of the database table
+    comparison : DataFrame
+        DataFrame containing comparison results
+    columns_to_compare : list
+        List of columns to compare
+    merge_keys : list
+        List of columns used as merge keys
     """
     updates = comparison[comparison["_merge"] == "both"]
     for _, row in updates.iterrows():
@@ -317,14 +396,21 @@ def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, 
 
 
 def should_update_value(new_val, old_val, col):
-    """Determine if a value should be updated based on comparison logic.
+    """
+    Determine if a value should be updated based on comparison logic.
 
-    Args:
-        new_val: The new value from the API
-        old_val: The existing value in the database
-        col: The column name
+    Parameters
+    ----------
+    new_val
+        The new value from the API
+    old_val
+        The existing value in the database
+    col : str
+        The column name
 
-    Returns:
+    Returns
+    -------
+    bool
         True if the value should be updated, False otherwise
     """
     # If both values are present, compare them
@@ -381,15 +467,23 @@ def should_update_value(new_val, old_val, col):
 
 
 def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
-    """Apply updates to the database.
+    """
+    Apply updates to the database.
 
-    Args:
-        cursor: Database cursor
-        symbol: Stock symbol being processed
-        table_name: Name of the database table
-        row: The row being updated
-        update_values: Dictionary of column names to new values
-        merge_keys: List of columns used as merge keys
+    Parameters
+    ----------
+    cursor
+        Database cursor
+    symbol : str
+        Stock symbol being processed
+    table_name : str
+        Name of the database table
+    row
+        The row being updated
+    update_values : dict
+        Dictionary of column names to new values
+    merge_keys : list
+        List of columns used as merge keys
     """
     if not update_values:
         return
@@ -419,13 +513,17 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
 
 
 def get_company_tickers():
-    """Fetch the latest company tickers JSON from SEC website.
+    """
+    Fetch the latest company tickers JSON from SEC website.
 
-    Returns:
+    Returns
+    -------
+    dict
         A dictionary of company tickers and their information
 
-    Note:
-        Falls back to a local file if the SEC website is unavailable
+    Notes
+    -----
+    Falls back to a local file if the SEC website is unavailable
     """
     url = "https://www.sec.gov/files/company_tickers.json"
     headers = {
@@ -448,13 +546,19 @@ def get_company_tickers():
 
 
 def connect_to_database(db_init_file="database_dev_v2.ini", section="postgresql"):
-    """Establish a connection to the database.
+    """
+    Establish a connection to the database.
 
-    Args:
-        db_init_file: Path to the database configuration file
-        section: Section in the configuration file to use
+    Parameters
+    ----------
+    db_init_file : str, default="database_dev_v2.ini"
+        Path to the database configuration file
+    section : str, default="postgresql"
+        Section in the configuration file to use
 
-    Returns:
+    Returns
+    -------
+    connection
         A database connection object
     """
     db_config = load_config(filename=db_init_file, section=section)
@@ -468,15 +572,22 @@ def connect_to_database(db_init_file="database_dev_v2.ini", section="postgresql"
 
 
 def handle_rate_limiting(counter, start_time, api_limit_per_min=300):
-    """Handle API rate limiting by sleeping if necessary.
+    """
+    Handle API rate limiting by sleeping if necessary.
 
-    Args:
-        counter: Current count of API calls
-        start_time: Time when counting started
-        api_limit_per_min: Maximum API calls allowed per minute
+    Parameters
+    ----------
+    counter : int
+        Current count of API calls
+    start_time : float
+        Time when counting started
+    api_limit_per_min : int, default=300
+        Maximum API calls allowed per minute
 
-    Returns:
-        tuple: Updated counter and start_time
+    Returns
+    -------
+    tuple
+        Updated counter and start_time
     """
     current_time = time.time()
     elapsed_time = current_time - start_time
@@ -498,14 +609,21 @@ def handle_rate_limiting(counter, start_time, api_limit_per_min=300):
 
 
 def process_symbol(connection, symbol, api_key, failure_list=None, period="quarter"):
-    """Process a single symbol by adding its datasets to the database.
+    """
+    Process a single symbol by adding its datasets to the database.
 
-    Args:
-        connection: Database connection
-        symbol: Stock symbol to process
-        api_key: API key for the financial data provider
-        failure_list: List to append failed symbols to
-        period: Data period ("quarter" or "fy")
+    Parameters
+    ----------
+    connection
+        Database connection
+    symbol : str
+        Stock symbol to process
+    api_key : str
+        API key for the financial data provider
+    failure_list : list, optional
+        List to append failed symbols to
+    period : str, default="quarter"
+        Data period ("quarter" or "fy")
     """
     print(f"Processing {symbol}")
     add_datasets_to_db(
@@ -524,14 +642,21 @@ def process_symbol(connection, symbol, api_key, failure_list=None, period="quart
 
 
 def main_quarter(api_key, db_init_file="database_dev_v2.ini", section="postgresql"):
-    """Main function to process quarterly financial data for all companies.
+    """
+    Main function to process quarterly financial data for all companies.
 
-    Args:
-        api_key: API key for the financial data provider
-        db_init_file: Path to the database configuration file
-        section: Section in the configuration file to use
+    Parameters
+    ----------
+    api_key : str
+        API key for the financial data provider
+    db_init_file : str, default="database_dev_v2.ini"
+        Path to the database configuration file
+    section : str, default="postgresql"
+        Section in the configuration file to use
 
-    Returns:
+    Returns
+    -------
+    list
         List of symbols that failed processing
     """
     # Initialize list to track failures
@@ -561,12 +686,17 @@ def main_quarter(api_key, db_init_file="database_dev_v2.ini", section="postgresq
 
 
 def load_api_key(key_file="key.txt"):
-    """Load the API key from a file.
+    """
+    Load the API key from a file.
 
-    Args:
-        key_file: Path to the file containing the API key
+    Parameters
+    ----------
+    key_file : str, default="key.txt"
+        Path to the file containing the API key
 
-    Returns:
+    Returns
+    -------
+    str
         The API key as a string
     """
     key_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), key_file)
