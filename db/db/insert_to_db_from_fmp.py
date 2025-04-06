@@ -5,6 +5,7 @@ import time
 import os
 import datetime
 import ssl
+import math
 from enum import Enum
 from typing import Optional
 from urllib.request import urlopen, Request
@@ -133,155 +134,13 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
 
                 # Standardize column names to match database
                 new_data_df.rename(columns=FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES, inplace=True)
-                columns_to_compare = [
-                    FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col)
-                    for col in dataset_to_table_columns[dataset]
-                    if col not in ["id", "company_id"]
-                ]
-                columns_to_compare = list(set(columns_to_compare))
+                columns_to_compare = get_columns_to_compare(dataset)
 
                 # Convert calendaryear to int for proper comparison
                 if "calendaryear" in new_data_df.columns:
                     new_data_df["calendaryear"] = new_data_df["calendaryear"].astype(int)
 
-                # Fetch existing data from database
-                cursor.execute(f"SELECT * FROM {table_name} WHERE symbol = '{symbol}'")
-                existing_records = cursor.fetchall()
-
-                if existing_records:
-                    # Convert existing records to DataFrame
-                    existing_df = pd.DataFrame(
-                        existing_records, columns=[desc[0] for desc in cursor.description]
-                    )
-
-                    # Identify records to update or insert
-                    if dataset == Datasets.PROFILE:
-                        merge_keys = ["symbol"]
-                    else:
-                        merge_keys = (
-                            ["calendaryear", "period"]
-                            if "period" in new_data_df.columns
-                            else ["calendaryear"]
-                        )
-                    comparison = new_data_df.merge(
-                        existing_df[columns_to_compare], on=merge_keys, how="left", indicator=True
-                    )
-
-                    # Handle new records (left_only)
-                    new_records = comparison[comparison["_merge"] == "left_only"]
-                    if not new_records.empty:
-                        new_records_str = "\n".join(
-                            [
-                                f"{', '.join([f'{key}={row[key]}' for key in merge_keys])}"
-                                for _, row in new_records.iterrows()
-                            ]
-                        )
-                        print(
-                            f"--Found {len(new_records)} new records: {new_records_str}\nfor {symbol} in {table_name}"
-                        )
-                        new_records_clean = new_records.rename(
-                            columns={f"{col}_x": col for col in columns_to_compare}
-                        )[columns_to_compare]
-                        insert_records_from_df(cursor, new_records_clean, table_name)
-
-                    # Handle updates (both present but different values)
-                    updates = comparison[comparison["_merge"] == "both"]
-                    for _, row in updates.iterrows():
-                        update_needed = False
-                        update_values = {}
-
-                        for col in columns_to_compare:
-                            if col in merge_keys:
-                                continue
-                            new_val = row[f"{col}_x"] if f"{col}_x" in row else row[col]
-                            old_val = row[f"{col}_y"] if f"{col}_y" in row else None
-
-                            # Replace the selected line with a more comprehensive comparison
-                            if pd.notna(new_val) and pd.notna(old_val):
-                                if isinstance(new_val, (int, float)) and isinstance(
-                                    old_val, (int, float)
-                                ):
-                                    # For numerical values, allow small differences
-                                    if abs(new_val - old_val) > 1e-3:
-                                        update_needed = True
-                                        update_values[col] = new_val
-                                elif isinstance(old_val, datetime.date) and isinstance(
-                                    new_val, str
-                                ):
-                                    # Convert string to date for comparison
-                                    try:
-                                        # Try different date formats with and without time components
-                                        if " " in new_val:  # Check if there's a time component
-                                            new_date = datetime.datetime.strptime(
-                                                new_val, "%Y-%m-%d %H:%M:%S"
-                                            ).date()
-                                        else:
-                                            new_date = datetime.datetime.strptime(
-                                                new_val, "%Y-%m-%d"
-                                            ).date()
-                                        # Handle pandas Timestamp objects by converting to date
-                                        old_date = old_val
-                                        if hasattr(old_val, "date") and callable(
-                                            getattr(old_val, "date")
-                                        ):
-                                            old_date = old_val.date()
-
-                                        # Now compare the date portions only
-                                        if new_date != old_date:
-                                            update_needed = True
-                                            # Store the date object rather than the string
-                                            update_values[col] = new_date
-                                    except ValueError:
-                                        # If string format is invalid, consider them different
-                                        update_needed = True
-                                        update_values[col] = new_val
-                                elif type(new_val) != type(old_val):
-                                    # If types are different, attempt to reconcile them and compare
-                                    try:
-                                        new_val = postgres_type_to_python_type(col)(new_val)
-                                        if new_val != old_val:
-                                            update_needed = True
-                                            update_values[col] = new_val
-                                    except ValueError:
-                                        # If reconciliation fails, consider them different
-                                        update_needed = True
-                                        update_values[col] = new_val
-                                elif new_val != old_val:
-                                    # For strings, booleans, dates, etc. use exact comparison
-                                    update_needed = True
-                                    update_values[col] = new_val
-                            elif pd.notna(new_val) and pd.isna(old_val):
-                                # If old value is null but new value exists
-                                update_needed = True
-                                update_values[col] = new_val
-
-                        if update_needed:
-                            records_updated_str = " and ".join(
-                                [f"{key} = '{row[key]}'" for key in merge_keys]
-                            )
-                            updated_records_str = ",\n".join(
-                                [
-                                    f"{key} = '{row[key + '_y']}' -> {key} = '{row[key + '_x']}'"
-                                    for key in update_values.keys()
-                                ]
-                            )
-                            print(
-                                f"--Updating records:\n{updated_records_str}\nwhere\n{records_updated_str} for {symbol} in {table_name}\n"
-                            )
-                            where_clause = " AND ".join(
-                                [f"{key} = '{row[key]}'" for key in merge_keys]
-                            )
-                            set_clause = ", ".join([f"{col} = %s" for col in update_values.keys()])
-                            update_sql = f"""
-                                UPDATE {table_name} 
-                                SET {set_clause}
-                                WHERE symbol = '{symbol}' AND {where_clause}
-                            """
-                            cursor.execute(update_sql, list(update_values.values()))
-                else:
-                    # If no existing records, insert all new data
-                    print(f"--Inserting new records for {symbol} in {table_name}")
-                    insert_records_from_df(cursor, new_data_df[columns_to_compare], table_name)
+                process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare, dataset)
 
         connection.commit()
         print(f"{symbol} processing complete.")
@@ -294,6 +153,188 @@ def add_datasets_to_db(connection, symbol, datasets, **kwargs):
         traceback.print_exc()
         connection.rollback()
         symbols_with_failure.append(symbol)
+
+
+def get_columns_to_compare(dataset):
+    """Get the columns to compare for a given dataset."""
+    columns_to_compare = [
+        FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col)
+        for col in dataset_to_table_columns[dataset]
+        if col not in ["id", "company_id"]
+    ]
+    return list(set(columns_to_compare))
+
+
+def process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare, dataset):
+    """Process a dataset by either updating existing records or inserting new ones."""
+    # Fetch existing data from database
+    cursor.execute(f"SELECT * FROM {table_name} WHERE symbol = '{symbol}'")
+    existing_records = cursor.fetchall()
+
+    if existing_records:
+        process_existing_records(cursor, symbol, table_name, new_data_df, 
+                                columns_to_compare, existing_records, dataset)
+    else:
+        # If no existing records, insert all new data
+        print(f"--Inserting new records for {symbol} in {table_name}")
+        insert_records_from_df(cursor, new_data_df[columns_to_compare], table_name)
+
+
+def process_existing_records(cursor, symbol, table_name, new_data_df, 
+                           columns_to_compare, existing_records, dataset):
+    """Process records when there are existing entries in the database."""
+    # Convert existing records to DataFrame
+    existing_df = pd.DataFrame(
+        existing_records, columns=[desc[0] for desc in cursor.description]
+    )
+
+    # Identify records to update or insert
+    merge_keys = get_merge_keys(dataset, new_data_df)
+    
+    comparison = new_data_df.merge(
+        existing_df[columns_to_compare], on=merge_keys, how="left", indicator=True
+    )
+
+    # Handle new records (left_only)
+    process_new_records(cursor, symbol, table_name, comparison, 
+                       columns_to_compare, merge_keys)
+
+    # Handle updates (both present but different values)
+    process_updates(cursor, symbol, table_name, comparison, 
+                   columns_to_compare, merge_keys)
+
+
+def get_merge_keys(dataset, new_data_df):
+    """Determine the merge keys based on the dataset."""
+    if dataset == Datasets.PROFILE:
+        return ["symbol"]
+    else:
+        return ["calendaryear", "period"] if "period" in new_data_df.columns else ["calendaryear"]
+
+
+def process_new_records(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
+    """Process records that exist in the new data but not in the database."""
+    new_records = comparison[comparison["_merge"] == "left_only"]
+    if not new_records.empty:
+        new_records_str = "\n".join(
+            [
+                f"{', '.join([f'{key}={row[key]}' for key in merge_keys])}"
+                for _, row in new_records.iterrows()
+            ]
+        )
+        print(
+            f"--Found {len(new_records)} new records: {new_records_str}\nfor {symbol} in {table_name}"
+        )
+        new_records_clean = new_records.rename(
+            columns={f"{col}_x": col for col in columns_to_compare}
+        )[columns_to_compare]
+        insert_records_from_df(cursor, new_records_clean, table_name)
+
+
+def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
+    """Process records that exist in both datasets but may have different values."""
+    updates = comparison[comparison["_merge"] == "both"]
+    for _, row in updates.iterrows():
+        update_needed = False
+        update_values = {}
+
+        for col in columns_to_compare:
+            if col in merge_keys:
+                continue
+                
+            new_val = row[f"{col}_x"] if f"{col}_x" in row else row[col]
+            old_val = row[f"{col}_y"] if f"{col}_y" in row else None
+            
+            if should_update_value(new_val, old_val, col):
+                update_needed = True
+                update_values[col] = new_val
+
+        if update_needed:
+            apply_updates(cursor, symbol, table_name, row, update_values, merge_keys)
+
+
+def should_update_value(new_val, old_val, col):
+    """Determine if a value should be updated based on comparison logic."""
+    # If both values are present, compare them
+    if pd.notna(new_val) and pd.notna(old_val):
+        # Handle date comparisons
+        if isinstance(new_val, str) and isinstance(old_val, (datetime.date, datetime.datetime)):
+            try:
+                new_date = datetime.datetime.strptime(new_val, "%Y-%m-%d" if " " not in new_val else "%Y-%m-%d %H:%M:%S").date()
+                old_date = old_val
+                if hasattr(old_val, "date") and callable(getattr(old_val, "date")):
+                    old_date = old_val.date()
+                return new_date != old_date
+            except ValueError:
+                return True
+        # Handle type differences
+        elif type(new_val) != type(old_val):
+            try:
+                new_val = postgres_type_to_python_type(col)(new_val)
+                return new_val != old_val
+            except ValueError:
+                return True
+        # Handle numeric comparisons
+        elif isinstance(new_val, (int, float)) and isinstance(old_val, (int, float)):
+            try:
+                # Convert to strings first to handle precision properly
+                new_str = str(new_val)
+                old_str = str(old_val)
+
+                # Get decimal precision (digits after decimal point)
+                new_precision = len(new_str.split('.')[-1]) if '.' in new_str else 0
+                old_precision = len(old_str.split('.')[-1]) if '.' in old_str else 0
+
+                # Use the lower precision for comparison
+                min_precision = min(new_precision, old_precision)
+
+                # Truncate to the minimum precision instead of rounding
+                factor = 10 ** min_precision
+                new_float_trunc = math.trunc(float(new_val) * factor) / factor
+                old_float_trunc = math.trunc(float(old_val) * factor) / factor
+
+                new_float_round = round(float(new_val), min_precision)
+                old_float_round = round(float(old_val), min_precision)
+
+                return (new_float_trunc != old_float_trunc) and (new_float_round != old_float_round)
+            except (ValueError, TypeError):
+                return True
+        # Direct comparison
+        else:
+            return new_val != old_val
+    # If new value exists but old is null
+    elif pd.notna(new_val) and pd.isna(old_val):
+        return True
+    return False
+
+
+def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
+    """Apply updates to the database."""
+    if not update_values:
+        return
+        
+    records_updated_str = " and ".join(
+        [f"{key} = '{row[key]}'" for key in merge_keys]
+    )
+    updated_records_str = ",\n".join(
+        [
+            f"{key} = '{row[key + '_y']}' -> {key} = '{row[key + '_x']}'"
+            for key in update_values.keys()
+        ]
+    )
+    print(
+        f"--Updating records:\n{updated_records_str}\nwhere\n{records_updated_str} for {symbol} in {table_name}\n"
+    )
+    where_clause = " AND ".join(
+        [f"{key} = '{row[key]}'" for key in merge_keys]
+    )
+    set_clause = ", ".join([f"{col} = %s" for col in update_values.keys()])
+    update_sql = f"""
+        UPDATE {table_name} 
+        SET {set_clause}
+        WHERE symbol = '{symbol}' AND {where_clause}
+    """
+    cursor.execute(update_sql, list(update_values.values()))
 
 
 def get_company_tickers():
