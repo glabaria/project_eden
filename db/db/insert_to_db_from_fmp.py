@@ -588,11 +588,16 @@ def connect_to_database(config=None):
     db_config = config["database"]
     connection = connect(db_config)
 
+    def _mask_password(config):
+        masked_config = config.copy()
+        masked_config["password"] = "*****"
+        return masked_config
+
     if connection:
-        print("Connected successfully!")
+        print(f"Connected successfully to database: {_mask_password(db_config)}")
         return connection
     else:
-        raise ValueError(f"Failed to connect to db: {db_config}")
+        raise ValueError(f"Failed to connect to db: {_mask_password(db_config)}")
 
 
 def handle_rate_limiting(counter, start_time, config=None):
