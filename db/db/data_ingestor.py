@@ -5,7 +5,6 @@ import time
 import os
 import datetime
 import ssl
-import math
 from enum import Enum
 from typing import Optional, Dict, Any
 from urllib.request import urlopen, Request
@@ -682,12 +681,14 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
     )
 
 
-def main_quarter(api_key=None, config_file="config.json"):
+def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
     """
-    Main function to process quarterly financial data for all companies.
+    Main function to process quarterly financial data for all companies, or only selected companies.
 
     Parameters
     ----------
+    tickers : list, optional
+        List of stock symbols to process. If None, processes all companies.
     api_key : str, optional
         API key for the financial data provider. If None, uses the key from config
     config_file : str, default="config.json"
@@ -712,18 +713,21 @@ def main_quarter(api_key=None, config_file="config.json"):
 
     # Get company tickers
     ticker_dict = get_company_tickers(config)
+    if tickers is None:
+        tickers = [value_dict["ticker"] for value_dict in ticker_dict.values()]
 
     # Initialize rate limiting variables
     counter = 0
     start_time = time.time()
 
     # Process each symbol
-    for value_dict in ticker_dict.values():
+    for symbol in tickers:
+        symbol = symbol.upper()
+
         # Handle API rate limiting
         counter, start_time = handle_rate_limiting(counter, start_time, config)
 
         # Process the current symbol
-        symbol = value_dict["ticker"]
         process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
         counter += 1
 
@@ -749,12 +753,19 @@ def load_config(config_file="config.json") -> Dict[str, Any]:
         return json.load(f)
 
 
-if __name__ == "__main__":
-    # Load configuration
-    config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-
-    # Run the main function
-    failed_symbols = main_quarter(config_file=config_file)
-
-    # Print any failures
+def driver(config_file="config.json", tickers=None):
+    failed_symbols = ingest_tickers(tickers=tickers, config_file=config_file)
     print(f"The following symbols failed: {failed_symbols}")
+
+
+
+if __name__ == "__main__":
+    pass
+    # # Load configuration
+    # config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    #
+    # # Run the main function
+    # failed_symbols = main_quarter(config_file=config_file)
+    #
+    # # Print any failures
+    # print(f"The following symbols failed: {failed_symbols}")
