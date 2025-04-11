@@ -31,15 +31,31 @@ def cli():
     default=DEFAULT_CONFIG_PATH,
     help="Path to the configuration file",
 )
+@click.option(
+    "--file",
+    "-f",
+    type=click.Path(exists=True),
+    help="Path to a file containing ticker symbols (one per line)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def ingest(config: str, tickers: List[str] = None):
+def ingest(config: str, file: str = None, tickers: List[str] = None):
     """
     Ingest financial data for specified company tickers.
 
     TICKERS: One or more stock ticker symbols (e.g., AAPL MSFT GOOG).
             If not provided, all publicly traded companies registered to the SEC
             (https://www.sec.gov/files/company_tickers.json) will be processed.
+
+    Alternatively, provide a file with ticker symbols using the --file option.
     """
+    if file:
+        with open(file, 'r') as f:
+            file_tickers = [line.strip() for line in f if line.strip()]
+        if tickers:
+            tickers = list(tickers) + file_tickers
+        else:
+            tickers = file_tickers
+
     tickers = None if not tickers else tickers
     data_ingestor.driver(config_file=config, tickers=tickers)
 
