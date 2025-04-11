@@ -4,6 +4,15 @@ Eden CLI - Command line interface for Project Eden
 """
 import click
 from typing import List
+import os
+import sys
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+db_path = os.path.join(project_root, 'db')
+sys.path.insert(0, db_path)
+
+# Adjust default config path to be absolute
+DEFAULT_CONFIG_PATH = os.path.join(project_root, "db/db/config.json")
 
 import db.data_ingestor as data_ingestor
 
@@ -19,7 +28,7 @@ def cli():
     "--config",
     "-c",
     type=click.Path(exists=True),
-    default="db/db/config.json",
+    default=DEFAULT_CONFIG_PATH,
     help="Path to the configuration file",
 )
 @click.argument("tickers", nargs=-1, required=False)
