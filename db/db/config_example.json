@@ -1,0 +1,17 @@
+{
+  "database": {
+    "host": "localhost",
+    "database": "database_name",
+    "user": "postgres",
+    "password": "password"
+  },
+  "api": {
+    "key": "123",
+    "base_url": "https://financialmodelingprep.com/api/v3",
+    "user_agent": "Your Name (your.email@example.com)",
+    "rate_limit_per_min": 300
+  },
+  "paths": {
+    "company_tickers_json": "company_tickers.json"
+  }
+}
