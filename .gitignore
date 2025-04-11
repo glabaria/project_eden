@@ -1,2 +1,4 @@
-db/db/database.ini
+db/db/database*.ini
 key.txt
+db/db/config.json
+db/db_backups
