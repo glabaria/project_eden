@@ -257,6 +257,7 @@ def postgres_type_to_python_type(column_name: str, is_postgres_column_name: bool
         or DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
         or DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.get(column_name)
         or DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
+        or DEFAULT_PRICE_COLUMNS_TO_TYPE.get(column_name)
     )
     return POSTGRES_TYPE_TO_PYTHON_TYPE[x]
 
