@@ -71,6 +71,7 @@ def get_jsonparsed_data(
     key: str = None,
     base_url: str = None,
     config: Dict[str, Any] = None,
+    api_version: str = "v3",
     **kwargs,
 ) -> dict:
     """
@@ -88,6 +89,8 @@ def get_jsonparsed_data(
         The base URL for the API. If None, uses the URL from config
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    api_version : str, default="v3"
+        The API version to use.  Options are "v3" and "stable"
     **kwargs
         Additional query parameters to include in the URL
 
@@ -104,9 +107,19 @@ def get_jsonparsed_data(
 
     if base_url is None:
         base_url = config["api"]["base_url"]
-    url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
-    for key, value in kwargs.items():
-        url += f"&{key}={value}"
+
+    if api_version == "v3":
+        url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
+        for wkargs_key, value in kwargs.items():
+            url += f"&{wkargs_key}={value}"
+    elif api_version == "stable":
+        url = f"{base_url}/{dataset_name}?symbol={ticker}"
+        for wkargs_key, value in kwargs.items():
+            url += f"&{wkargs_key}={value}"
+        url += f"&apikey={key}"
+    else:
+        raise ValueError(f"Invalid api_version: {api_version}.  Options are 'v3' and 'stable'.")
+
     context = ssl.create_default_context(cafile=certifi.where())
     response = urlopen(url, context=context)
     data = response.read().decode("utf-8")
