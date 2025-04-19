@@ -22,6 +22,7 @@ from db.create_tables import (
     DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
     DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
     postgres_type_to_python_type,
+    DEFAULT_PRICE_COLUMNS_TO_TYPE,
 )
 
 
@@ -30,6 +31,7 @@ BALANCE_SHEET_STATEMENT = "balance-sheet-statement"
 CASH_FLOW_STATEMENT = "cash-flow-statement"
 PROFILE = "profile"
 ENTERPRISE_VALUES = "enterprise-values"
+HISTORTICAL_PRICE_EOD_FULL = "historical-price-eod/full"
 
 
 class Datasets(Enum):
@@ -38,6 +40,33 @@ class Datasets(Enum):
     CASH_FLOW_STATEMENT = CASH_FLOW_STATEMENT
     ENTERPRISE_VALUES = ENTERPRISE_VALUES
     PROFILE = PROFILE
+    HISTORTICAL_PRICE_EOD_FULL = HISTORTICAL_PRICE_EOD_FULL
+
+
+dataset_to_base_url_key = {
+    Datasets.INCOME_STATEMENT: "base_url",
+    Datasets.BALANCE_SHEET_STATEMENT: "base_url",
+    Datasets.CASH_FLOW_STATEMENT: "base_url",
+    Datasets.ENTERPRISE_VALUES: "base_url",
+    Datasets.PROFILE: "base_url",
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: "base_url_new",
+}
+
+
+dataset_to_default_params = {
+    Datasets.BALANCE_SHEET_STATEMENT: {"period": "quarter"},
+    Datasets.CASH_FLOW_STATEMENT: {"period": "quarter"},
+    Datasets.INCOME_STATEMENT: {"period": "quarter"},
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: {"from": "1900-01-01", "to": datetime.date.today().strftime("%Y-%m-%d")}
+}
+
+datasets_to_api_version = {
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: "stable",
+    Datasets.PROFILE: "v3",
+    Datasets.INCOME_STATEMENT: "v3",
+    Datasets.BALANCE_SHEET_STATEMENT: "v3",
+    Datasets.CASH_FLOW_STATEMENT: "v3",
+}
 
 
 dataset_to_table_name = {
@@ -53,6 +82,7 @@ dataset_to_table_name_quarter = {
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_quarter",
     Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_quarter",
     Datasets.PROFILE: "company",
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: "price",
 }
 
 
@@ -62,6 +92,7 @@ dataset_to_table_columns = {
     Datasets.CASH_FLOW_STATEMENT: list(DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()),
     Datasets.ENTERPRISE_VALUES: list(DEFAULT_SHARES_COLUMNS_TO_TYPE.keys()),
     Datasets.PROFILE: list(DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.keys()),
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: list(DEFAULT_PRICE_COLUMNS_TO_TYPE.keys()),
 }
 
 
@@ -71,6 +102,7 @@ def get_jsonparsed_data(
     key: str = None,
     base_url: str = None,
     config: Dict[str, Any] = None,
+    api_version: str = "v3",
     **kwargs,
 ) -> dict:
     """
@@ -88,6 +120,8 @@ def get_jsonparsed_data(
         The base URL for the API. If None, uses the URL from config
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    api_version : str, default="v3"
+        The API version to use.  Options are "v3" and "stable"
     **kwargs
         Additional query parameters to include in the URL
 
@@ -104,9 +138,19 @@ def get_jsonparsed_data(
 
     if base_url is None:
         base_url = config["api"]["base_url"]
-    url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
-    for key, value in kwargs.items():
-        url += f"&{key}={value}"
+
+    if api_version == "v3":
+        url = f"{base_url}/{dataset_name}/{ticker}?apikey={key}"
+        for wkargs_key, value in kwargs.items():
+            url += f"&{wkargs_key}={value}"
+    elif api_version == "stable":
+        url = f"{base_url}/{dataset_name}?symbol={ticker}"
+        for wkargs_key, value in kwargs.items():
+            url += f"&{wkargs_key}={value}"
+        url += f"&apikey={key}"
+    else:
+        raise ValueError(f"Invalid api_version: {api_version}.  Options are 'v3' and 'stable'.")
+
     context = ssl.create_default_context(cafile=certifi.where())
     response = urlopen(url, context=context)
     data = response.read().decode("utf-8")
@@ -114,7 +158,7 @@ def get_jsonparsed_data(
 
 
 def gather_dataset(
-    ticker: str, dataset: str, key: str = None, period: Optional[str] = None, config: Dict[str, Any] = None, **kwargs
+    ticker: str, dataset: str, key: str = None, config: Dict[str, Any] = None, **kwargs
 ) -> pd.DataFrame:
     """
     Gather dataset from the financial API and convert to DataFrame.
@@ -127,8 +171,6 @@ def gather_dataset(
         The dataset name to retrieve
     key : str, optional
         The API key for authentication. If None, uses the key from config
-    period : str, optional
-        The period to retrieve (e.g., "quarter" or "fy")
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
     **kwargs
@@ -139,14 +181,16 @@ def gather_dataset(
     pd.DataFrame
         DataFrame containing the retrieved data
     """
-    kwargs_to_use = (
-        dict(period=period, **kwargs)
-        if period is not None
-        else kwargs
-        if kwargs is not None
-        else {}
-    )
-    json_data = get_jsonparsed_data(dataset, ticker, key, config=config, **kwargs_to_use)
+    kwargs = kwargs if kwargs else {}
+    kwargs_to_use = {}
+    if "base_url" not in kwargs:
+        kwargs_to_use["base_url"] = config["api"][dataset_to_base_url_key[Datasets(dataset)]]
+
+    kwargs_to_use.update(kwargs)
+
+    api_version = datasets_to_api_version.get(Datasets(dataset), "v3")
+
+    json_data = get_jsonparsed_data(dataset, ticker, key, config=config, api_version=api_version, **kwargs_to_use)
     return pd.DataFrame.from_records(json_data)
 
 
@@ -177,19 +221,20 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
     if key is None:
         key = config["api"]["key"]
     datasets = Datasets if datasets is None else datasets
-    period = kwargs.get("period", "fy")
-    dataset_to_table_name_to_use = (
-        dataset_to_table_name if period == "fy" else dataset_to_table_name_quarter
-    )
 
     try:
         with connection.cursor() as cursor:
             for dataset in datasets:
-                table_name = dataset_to_table_name_to_use[dataset]
+                table_name = dataset_to_table_name_quarter[dataset]
                 print(f"--Processing {symbol} for {table_name} table.")
 
                 # Fetch new data from API
-                new_data_df = gather_dataset(symbol, dataset.value, key, config=config, **kwargs)
+                default_params = dataset_to_default_params.get(Datasets(dataset), {}) if dataset in dataset_to_default_params else {}
+                kwargs_to_use = kwargs.copy()
+                for param, value in default_params.items():
+                    if param not in kwargs:
+                        kwargs_to_use.update({param: value})
+                new_data_df = gather_dataset(symbol, dataset.value, key, config=config, **kwargs_to_use)
 
                 if new_data_df.empty:
                     print(f"--No new data found for {symbol} in {table_name}, skipping.")
@@ -303,6 +348,10 @@ def process_existing_records(cursor, symbol, table_name, new_data_df,
     # Identify records to update or insert
     merge_keys = get_merge_keys(dataset, new_data_df)
 
+    # Handle date in merge_keys, since JSON returns date as string
+    if "date" in merge_keys:
+        new_data_df["date"] = pd.to_datetime(new_data_df["date"]).dt.date
+
     comparison = new_data_df.merge(
         existing_df[columns_to_compare], on=merge_keys, how="left", indicator=True
     )
@@ -334,6 +383,8 @@ def get_merge_keys(dataset, new_data_df):
     """
     if dataset == Datasets.PROFILE:
         return ["symbol"]
+    elif dataset == Datasets.HISTORTICAL_PRICE_EOD_FULL:
+        return ["date"]
     else:
         return ["calendaryear", "period"] if "period" in new_data_df.columns else ["calendaryear"]
 
@@ -673,8 +724,8 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
             Datasets.INCOME_STATEMENT,
             Datasets.CASH_FLOW_STATEMENT,
             Datasets.BALANCE_SHEET_STATEMENT,
+            Datasets.HISTORTICAL_PRICE_EOD_FULL,
         ],
-        period=period,
         key=api_key,
         failure_list=failure_list,
         config=config,

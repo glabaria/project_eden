@@ -201,6 +201,18 @@ DEFAULT_SHARES_COLUMNS_TO_TYPE = {
     "numberofshares": "bigint",
 }
 
+DEFAULT_PRICE_COLUMNS_TO_TYPE = {
+    "id": "serial primary key",
+    "company_id": "serial",
+    "symbol": "text",
+    "date": "date",
+    "open": "real",
+    "high": "real",
+    "low": "real",
+    "close": "real",
+    "volume": "bigint",
+}
+
 FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES = {
     x: x.lower() for x in DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE.keys()
 }
@@ -212,6 +224,9 @@ FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update(
 )
 FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update(
     {x: x.lower() for x in DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.keys()}
+)
+FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.update(
+    {x: x.lower() for x in DEFAULT_PRICE_COLUMNS_TO_TYPE.keys()}
 )
 
 POSTGRES_COLUMN_NAMES_TO_FMP_COLUMN_NAMES = {
@@ -242,6 +257,7 @@ def postgres_type_to_python_type(column_name: str, is_postgres_column_name: bool
         or DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
         or DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE.get(column_name)
         or DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE.get(column_name)
+        or DEFAULT_PRICE_COLUMNS_TO_TYPE.get(column_name)
     )
     return POSTGRES_TYPE_TO_PYTHON_TYPE[x]
 
@@ -431,6 +447,61 @@ def create_shares_table(
         print(error)
 
 
+def create_price_table(
+    connection: psycopg2.connect,
+    command: Optional[str] = None,
+    table_name: str = "price",
+    foreign_key_ref_tuple: Optional[Tuple[str, str, str]] = None,
+) -> None:
+    if command is None:
+        column_column_type = ""
+        for column, column_type in DEFAULT_PRICE_COLUMNS_TO_TYPE.items():
+            column_column_type += ("," if column_column_type else "") + f"{column} {column_type}"
+
+        # Add foreign key constraint
+        if foreign_key_ref_tuple is None:
+            foreign_key_ref_tuple = ("company_id", "company", "id")
+
+        foreign_key_info = (
+            f"foreign key ({foreign_key_ref_tuple[0]}) references "
+            f"{foreign_key_ref_tuple[1]}({foreign_key_ref_tuple[2]})"
+        )
+
+        # Add unique constraint for company_id, symbol, date
+        unique_constraint = "UNIQUE(company_id, symbol, date)"
+
+        # Add indexes
+        indexes = [
+            f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
+            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+        ]
+
+        command = f"""
+            CREATE TABLE {table_name} (
+                {column_column_type},
+                {foreign_key_info},
+                {unique_constraint}
+            )
+        """
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute(command)
+
+        # Create indexes if not using the default command
+        if command is None:
+            for index_cmd in indexes:
+                cursor.execute(index_cmd)
+
+        # Close communication with the PostgreSQL database server
+        cursor.close()
+        # Commit the changes
+        connection.commit()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+
+
 def add_columns_if_not_exists(conn, table_name, columns):
     with conn.cursor() as cur:
         for column_name, column_type in columns.items():
@@ -465,8 +536,8 @@ def add_columns_if_not_exists(conn, table_name, columns):
 
 
 if __name__ == "__main__":
-    db_config = load_config()
-    connection = connect(db_config)
+    db_config = load_config(filename="database_dev_v2.ini")
+    connection = connect(db_config, )
     if connection:
         print("Connected successfully!")
     else:
@@ -476,18 +547,20 @@ if __name__ == "__main__":
     # create_shares_table(connection, table_name="shares_fy",
     #                     foreign_key_ref_tuple=("company_id", "company", "id"))
 
-    create_income_statement_table(
-        connection,
-        table_name="income_statement_quarter",
-        foreign_key_ref_tuple=("company_id", "company", "id"),
-    )
-    create_balance_sheet_table(
-        connection,
-        table_name="balance_sheet_quarter",
-        foreign_key_ref_tuple=("company_id", "company", "id"),
-    )
-    create_cash_flow_statement_table(
-        connection,
-        table_name="cash_flow_statement_quarter",
-        foreign_key_ref_tuple=("company_id", "company", "id"),
-    )
+    # create_income_statement_table(
+    #     connection,
+    #     table_name="income_statement_quarter",
+    #     foreign_key_ref_tuple=("company_id", "company", "id"),
+    # )
+    # create_balance_sheet_table(
+    #     connection,
+    #     table_name="balance_sheet_quarter",
+    #     foreign_key_ref_tuple=("company_id", "company", "id"),
+    # )
+    # create_cash_flow_statement_table(
+    #     connection,
+    #     table_name="cash_flow_statement_quarter",
+    #     foreign_key_ref_tuple=("company_id", "company", "id"),
+    # )
+
+    create_price_table(connection, table_name="price", foreign_key_ref_tuple=("company_id", "company", "id"))
