@@ -288,9 +288,20 @@ def create_company_table(
                 )
             """
 
+        # Create index for symbol column
+        indexes = [
+            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);"
+        ]
+
     try:
         cursor = connection.cursor()
         cursor.execute(command)
+
+        # Create indexes if not using the default command
+        if command is None:
+            for index_cmd in indexes:
+                cursor.execute(index_cmd)
+
         # close communication with the PostgreSQL database server
         cursor.close()
         # commit the changes
@@ -325,9 +336,22 @@ def create_income_statement_table(
                 )
             """
 
+        # Create indexes for company_id, symbol, and date columns
+        indexes = [
+            f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
+            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+        ]
+
     try:
         cursor = connection.cursor()
         cursor.execute(command)
+
+        # Create indexes if not using the default command
+        if command is None:
+            for index_cmd in indexes:
+                cursor.execute(index_cmd)
+
         # close communication with the PostgreSQL database server
         cursor.close()
         # commit the changes
@@ -362,9 +386,22 @@ def create_balance_sheet_table(
                 )
             """
 
+        # Create indexes for company_id, symbol, and date columns
+        indexes = [
+            f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
+            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+        ]
+
     try:
         cursor = connection.cursor()
         cursor.execute(command)
+
+        # Create indexes if not using the default command
+        if command is None:
+            for index_cmd in indexes:
+                cursor.execute(index_cmd)
+
         # close communication with the PostgreSQL database server
         cursor.close()
         # commit the changes
@@ -399,9 +436,22 @@ def create_cash_flow_statement_table(
                 )
             """
 
+        # Create indexes for company_id, symbol, and date columns
+        indexes = [
+            f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
+            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+        ]
+
     try:
         cursor = connection.cursor()
         cursor.execute(command)
+
+        # Create indexes if not using the default command
+        if command is None:
+            for index_cmd in indexes:
+                cursor.execute(index_cmd)
+
         # close communication with the PostgreSQL database server
         cursor.close()
         # commit the changes
