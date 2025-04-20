@@ -16,7 +16,7 @@ DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE = {
     "currency": "text",
     "cik": "bigint",
     "isin": "text",
-    "cusip": "bigint",
+    "cusip": "text",
     "exchange": "text",
     "exchangeShortName": "text",
     "industry": "text",
