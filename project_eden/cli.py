@@ -35,6 +35,7 @@ def custom_cli_help(ctx):
     # Add our custom formatted section after the description
     commands_section = """
 Commands:
+  init      Initialize database tables and ingest financial data
   ingest    Ingest financial data for specified company tickers
   create    Create database tables for financial data
 
@@ -127,6 +128,70 @@ def custom_format_help(ctx):
     return formatter.getvalue() + "\nOptions:" + options_part
 
 create.get_help = custom_format_help
+
+
+@cli.command()
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True),
+    default=DEFAULT_CONFIG_PATH,
+    help="Path to the configuration file",
+)
+@click.option(
+    "--file",
+    "-f",
+    type=click.Path(exists=True),
+    help="Path to a file containing ticker symbols (one per line)",
+)
+@click.argument("tickers", nargs=-1, required=False)
+def init(config: str, file: str = None, tickers: List[str] = None):
+    """
+    Initialize database tables and ingest financial data.
+
+    Creates all necessary database tables and ingests financial data for specified tickers.
+    If no tickers are specified, processes all publicly traded companies.
+    """
+    # Create all tables
+    create_tables.driver(config_file=config, tables=None)
+
+    # Process tickers from file if provided
+    if file:
+        with open(file, 'r') as f:
+            file_tickers = [line.strip() for line in f if line.strip()]
+        if tickers:
+            tickers = list(tickers) + file_tickers
+        else:
+            tickers = file_tickers
+
+    # Ingest data
+    tickers_list = None if not tickers else tickers
+    data_ingestor.driver(config_file=config, tickers=tickers_list)
+
+
+# Override the get_help method to provide custom formatted help
+original_init_help = init.get_help
+
+
+def custom_init_help(ctx):
+    formatter = HelpFormatter()
+    formatter.write_heading("Initialize database tables and ingest financial data")
+    formatter.write_paragraph()
+    formatter.write_text("Creates all necessary database tables and ingests financial data for specified tickers.")
+    formatter.write_paragraph()
+    formatter.write_text("TICKERS: One or more stock ticker symbols (e.g., AAPL MSFT GOOG).")
+    formatter.write_text("         If not provided, all publicly traded companies will be processed.")
+
+    # Get the original help text for options and arguments
+    original_help = original_init_help(ctx)
+
+    # Extract just the options part (after "Options:")
+    options_part = original_help.split("Options:")[1] if "Options:" in original_help else ""
+
+    return formatter.getvalue() + "\nOptions:" + options_part
+
+
+init.get_help = custom_init_help
 
 
 if __name__ == "__main__":
