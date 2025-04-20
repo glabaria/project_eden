@@ -1,9 +1,12 @@
 import psycopg2
 import datetime
+import os
+import json
 from psycopg2 import sql
+from enum import Enum
 
-from typing import Optional, Tuple
-from db.utils import load_config, connect
+from typing import Optional, Tuple, Dict, Any, List
+from db.utils import connect
 
 
 DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE = {
@@ -244,6 +247,19 @@ POSTGRES_TYPE_TO_PYTHON_TYPE = {
     "real": float,
     "bool": bool,
 }
+
+
+class AvailableTables(Enum):
+    """Enum of tables that can be created by the driver."""
+    COMPANY = "company"
+    INCOME_STATEMENT_FY = "income_statement_fy"
+    INCOME_STATEMENT_QUARTER = "income_statement_quarter"
+    BALANCE_SHEET_FY = "balance_sheet_fy"
+    BALANCE_SHEET_QUARTER = "balance_sheet_quarter"
+    CASH_FLOW_STATEMENT_FY = "cash_flow_statement_fy"
+    CASH_FLOW_STATEMENT_QUARTER = "cash_flow_statement_quarter"
+    SHARES_FY = "shares_fy"
+    PRICE = "price"
 
 
 def postgres_type_to_python_type(column_name: str, is_postgres_column_name: bool = True) -> type:
@@ -547,33 +563,156 @@ def add_columns_if_not_exists(conn, table_name, columns):
                 )
         conn.commit()
 
+def load_config(config_file: str) -> Dict[str, Any]:
+    """
+    Load configuration from a JSON file.
+
+    Parameters
+    ----------
+    config_file : str
+        Path to the JSON configuration file
+
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary containing the configuration
+    """
+    # If config_file is a relative path, make it relative to the current file
+    if not os.path.isabs(config_file):
+        config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), config_file)
+
+    with open(config_file, 'r') as f:
+        return json.load(f)
+
+
+def create_tables(tables: List[AvailableTables], connection, foreign_key_ref_tuple=None):
+    """
+    Create the specified tables in the database.
+
+    Parameters
+    ----------
+    tables : List[AvailableTables]
+        List of tables to create
+    connection
+        Database connection
+    foreign_key_ref_tuple : tuple, optional
+        Foreign key reference tuple (column, table, reference_column)
+    """
+    # Default foreign key reference to company table
+    if foreign_key_ref_tuple is None:
+        foreign_key_ref_tuple = ("company_id", "company", "id")
+
+    # Create tables based on the enum values
+    for table in tables:
+        print(f"Creating table: {table.value}")
+
+        if table == AvailableTables.COMPANY:
+            create_company_table(connection, table_name=table.value)
+
+        elif table == AvailableTables.INCOME_STATEMENT_FY:
+            create_income_statement_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        elif table == AvailableTables.INCOME_STATEMENT_QUARTER:
+            create_income_statement_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        elif table == AvailableTables.BALANCE_SHEET_FY:
+            create_balance_sheet_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        elif table == AvailableTables.BALANCE_SHEET_QUARTER:
+            create_balance_sheet_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        elif table == AvailableTables.CASH_FLOW_STATEMENT_FY:
+            create_cash_flow_statement_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        elif table == AvailableTables.CASH_FLOW_STATEMENT_QUARTER:
+            create_cash_flow_statement_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+        # elif table == AvailableTables.SHARES_FY:
+        #     create_shares_table(
+        #         connection,
+        #         table_name=table.value,
+        #         foreign_key_ref_tuple=foreign_key_ref_tuple
+        #     )
+
+        elif table == AvailableTables.PRICE:
+            create_price_table(
+                connection,
+                table_name=table.value,
+                foreign_key_ref_tuple=foreign_key_ref_tuple
+            )
+
+
+def driver(config_file: str = "config.json", tables: Optional[List[str]] = None):
+    """
+    Driver function to create database tables.
+
+    Parameters
+    ----------
+    config_file : str, default="config.json"
+        Path to the JSON configuration file
+    tables : List[str], optional
+        List of table names to create. If None, creates all tables.
+
+    Returns
+    -------
+    None
+    """
+    # Load configuration
+    config = load_config(config_file)
+
+    # Connect to the database
+    connection = connect(config["database"])
+    if not connection:
+        raise ValueError(
+            f"Failed to connect to database: {config['database']['host']}/{config['database']['database']}")
+
+    print(f"Connected to database: {config['database']['host']}/{config['database']['database']}")
+
+    # Determine which tables to create
+    if tables is None:
+        # Create all tables if none specified
+        tables_to_create = list(AvailableTables)
+    else:
+        # Create only the specified tables
+        tables_to_create = []
+        for table_name in tables:
+            try:
+                # Try to get the enum by value
+                table_enum = next(t for t in AvailableTables if t.value == table_name)
+                tables_to_create.append(table_enum)
+            except StopIteration:
+                print(f"Warning: Table '{table_name}' is not recognized and will be skipped.")
+
+    # Create the tables
+    create_tables(tables_to_create, connection)
+
+    print("Table creation completed.")
+    connection.close()
+
 
 if __name__ == "__main__":
-    db_config = load_config(filename="database_dev_v2.ini")
-    connection = connect(db_config, )
-    if connection:
-        print("Connected successfully!")
-    else:
-        raise ValueError(f"Failed to connect to db: {db_config}")
-
-    # add_columns_if_not_exists(connection, "company", DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE)
-    # create_shares_table(connection, table_name="shares_fy",
-    #                     foreign_key_ref_tuple=("company_id", "company", "id"))
-
-    # create_income_statement_table(
-    #     connection,
-    #     table_name="income_statement_quarter",
-    #     foreign_key_ref_tuple=("company_id", "company", "id"),
-    # )
-    # create_balance_sheet_table(
-    #     connection,
-    #     table_name="balance_sheet_quarter",
-    #     foreign_key_ref_tuple=("company_id", "company", "id"),
-    # )
-    # create_cash_flow_statement_table(
-    #     connection,
-    #     table_name="cash_flow_statement_quarter",
-    #     foreign_key_ref_tuple=("company_id", "company", "id"),
-    # )
-
-    create_price_table(connection, table_name="price", foreign_key_ref_tuple=("company_id", "company", "id"))
+    pass
