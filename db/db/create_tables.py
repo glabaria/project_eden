@@ -460,43 +460,6 @@ def create_cash_flow_statement_table(
         print(error)
 
 
-def create_shares_table(
-    connection: psycopg2.connect,
-    command: Optional[str] = None,
-    table_name: str = "shares_fy",
-    foreign_key_ref_tuple: Optional[Tuple[str, str, str]] = None,
-) -> None:
-    if command is None:
-        column_column_type = ""
-        for column, column_type in DEFAULT_SHARES_COLUMNS_TO_TYPE.items():
-            column_column_type += ("," if column_column_type else "") + f"{column} {column_type}"
-        if foreign_key_ref_tuple is not None:
-            foreign_key_info = (
-                f"foreign key ({foreign_key_ref_tuple[0]}) references "
-                f"{foreign_key_ref_tuple[1]}({foreign_key_ref_tuple[2]})"
-            )
-        else:
-            foreign_key_info = None
-        foreign_key_info = "," + foreign_key_info if foreign_key_info is not None else ""
-
-        command = f"""
-            CREATE TABLE {table_name} (
-                    {column_column_type}
-                    {foreign_key_info}
-                )
-            """
-
-    try:
-        cursor = connection.cursor()
-        cursor.execute(command)
-        # close communication with the PostgreSQL database server
-        cursor.close()
-        # commit the changes
-        connection.commit()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
-
-
 def create_price_table(
     connection: psycopg2.connect,
     command: Optional[str] = None,
