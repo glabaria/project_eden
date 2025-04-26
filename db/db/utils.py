@@ -36,7 +36,11 @@ def insert_records_from_df(cursor, df: pd.DataFrame, table_name):
     columns = df.columns.values
     df = df.replace(np.nan, None)
     for _, row in df.iterrows():
-        insert_record_with_company_id(cursor, table_name, columns, row)
+        # Special case for company table which shouldn't have company_id
+        if table_name == "company":
+            insert_record(cursor, table_name, columns, row)
+        else:
+            insert_record_with_company_id(cursor, table_name, columns, row)
 
 
 def insert_record_with_company_id(cursor, table_name, columns, values):
