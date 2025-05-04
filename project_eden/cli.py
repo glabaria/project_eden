@@ -32,9 +32,8 @@ original_cli_help = cli.get_help
 def custom_cli_help(ctx):
     help_text = original_cli_help(ctx)
 
-    # Add our custom formatted section after the description
-    commands_section = """
-Commands:
+    # Define our custom commands section
+    commands_section = """Commands:
   init      Initialize database tables and ingest financial data
   ingest    Ingest financial data for specified company tickers
   create    Create database tables for financial data
@@ -42,12 +41,22 @@ Commands:
 Run 'eden COMMAND --help' for more information on a command.
 """
 
-    # Insert our section after the description but before the options
-    if "Options:" in help_text:
-        parts = help_text.split("Options:")
-        return parts[0] + commands_section + "Options:" + parts[1]
+    # Replace the default Commands section with our custom one
+    if "Commands:" in help_text:
+        parts = help_text.split("Commands:")
+        # Keep the part before "Commands:" and replace everything between "Commands:" and "Options:"
+        if "Options:" in parts[1]:
+            options_part = parts[1].split("Options:")[1]
+            return parts[0] + commands_section + "Options:" + options_part
+        else:
+            return parts[0] + commands_section
     else:
-        return help_text + commands_section
+        # If no Commands section exists, just add ours before Options
+        if "Options:" in help_text:
+            parts = help_text.split("Options:")
+            return parts[0] + commands_section + "Options:" + parts[1]
+        else:
+            return help_text + commands_section
 
 cli.get_help = custom_cli_help
 
