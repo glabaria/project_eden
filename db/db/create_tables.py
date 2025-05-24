@@ -251,6 +251,7 @@ POSTGRES_TYPE_TO_PYTHON_TYPE = {
 
 class AvailableTables(Enum):
     """Enum of tables that can be created by the driver."""
+
     COMPANY = "company"
     INCOME_STATEMENT_FY = "income_statement_fy"
     INCOME_STATEMENT_QUARTER = "income_statement_quarter"
@@ -305,9 +306,7 @@ def create_company_table(
             """
 
         # Create index for symbol column
-        indexes = [
-            f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);"
-        ]
+        indexes = [f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);"]
 
     try:
         cursor = connection.cursor()
@@ -356,7 +355,7 @@ def create_income_statement_table(
         indexes = [
             f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
             f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
-            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);",
         ]
 
     try:
@@ -406,7 +405,7 @@ def create_balance_sheet_table(
         indexes = [
             f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
             f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
-            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);",
         ]
 
     try:
@@ -456,7 +455,7 @@ def create_cash_flow_statement_table(
         indexes = [
             f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
             f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
-            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);",
         ]
 
     try:
@@ -503,7 +502,7 @@ def create_price_table(
         indexes = [
             f"CREATE INDEX idx_{table_name}_company_id ON {table_name}(company_id);",
             f"CREATE INDEX idx_{table_name}_symbol ON {table_name}(symbol);",
-            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);"
+            f"CREATE INDEX idx_{table_name}_date ON {table_name}(date);",
         ]
 
         command = f"""
@@ -563,6 +562,7 @@ def add_columns_if_not_exists(conn, table_name, columns):
                 )
         conn.commit()
 
+
 def load_config(config_file: str) -> Dict[str, Any]:
     """
     Load configuration from a JSON file.
@@ -581,7 +581,7 @@ def load_config(config_file: str) -> Dict[str, Any]:
     if not os.path.isabs(config_file):
         config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), config_file)
 
-    with open(config_file, 'r') as f:
+    with open(config_file, "r") as f:
         return json.load(f)
 
 
@@ -611,44 +611,32 @@ def create_tables(tables: List[AvailableTables], connection, foreign_key_ref_tup
 
         elif table == AvailableTables.INCOME_STATEMENT_FY:
             create_income_statement_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         elif table == AvailableTables.INCOME_STATEMENT_QUARTER:
             create_income_statement_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         elif table == AvailableTables.BALANCE_SHEET_FY:
             create_balance_sheet_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         elif table == AvailableTables.BALANCE_SHEET_QUARTER:
             create_balance_sheet_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         elif table == AvailableTables.CASH_FLOW_STATEMENT_FY:
             create_cash_flow_statement_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         elif table == AvailableTables.CASH_FLOW_STATEMENT_QUARTER:
             create_cash_flow_statement_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
         # elif table == AvailableTables.SHARES_FY:
@@ -660,9 +648,7 @@ def create_tables(tables: List[AvailableTables], connection, foreign_key_ref_tup
 
         elif table == AvailableTables.PRICE:
             create_price_table(
-                connection,
-                table_name=table.value,
-                foreign_key_ref_tuple=foreign_key_ref_tuple
+                connection, table_name=table.value, foreign_key_ref_tuple=foreign_key_ref_tuple
             )
 
 
@@ -688,7 +674,8 @@ def driver(config_file: str = "config.json", tables: Optional[List[str]] = None)
     connection = connect(config["database"])
     if not connection:
         raise ValueError(
-            f"Failed to connect to database: {config['database']['host']}/{config['database']['database']}")
+            f"Failed to connect to database: {config['database']['host']}/{config['database']['database']}"
+        )
 
     print(f"Connected to database: {config['database']['host']}/{config['database']['database']}")
 
