@@ -807,7 +807,6 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json", period
         counter, start_time = handle_rate_limiting(counter, start_time, config)
 
         # Process the current symbol
-        # TODO: counter is not accurate, since process_symbol() has multiple API calls
         if period is None:
             process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
             datasets = [
@@ -818,10 +817,10 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json", period
             ]
             process_symbol(connection, symbol, api_key, symbols_with_failure, period="fy", config=config,
                            datasets=datasets)
-            counter += 2
+            counter += (5 + 4)  # 5 for quarter, 4 for fy
         else:
             process_symbol(connection, symbol, api_key, symbols_with_failure, period=period, config=config)
-            counter += 1
+            counter += 5  # 5 for quarter
 
     return symbols_with_failure
 
