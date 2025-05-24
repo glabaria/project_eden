@@ -78,8 +78,15 @@ cli.get_help = custom_cli_help
     type=click.Path(exists=True),
     help="Path to a file containing ticker symbols (one per line)",
 )
+@click.option(
+    "--period",
+    "-p",
+    type=click.Choice(["quarter", "fy", "all"], case_sensitive=False),
+    default=None,
+    help="Data period to ingest (quarter, fy, or both if not specified or all)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def ingest(config: str, file: str = None, tickers: List[str] = None):
+def ingest(config: str, file: str = None, period: str = None, tickers: List[str] = None):
     """
     Ingest financial data for specified company tickers.   Type `eden ingest --help` for more information.
 
@@ -98,7 +105,8 @@ def ingest(config: str, file: str = None, tickers: List[str] = None):
             tickers = file_tickers
 
     tickers = None if not tickers else tickers
-    data_ingestor.driver(config_file=config, tickers=tickers)
+    period = None if period == "all" else period
+    data_ingestor.driver(config_file=config, tickers=tickers, period=period)
 
 
 @cli.command()
@@ -148,13 +156,20 @@ create.get_help = custom_format_help
     help="Path to the configuration file",
 )
 @click.option(
+    "--period",
+    "-p",
+    type=click.Choice(["quarter", "fy", "all"], case_sensitive=False),
+    default=None,
+    help="Data period to ingest (quarter, fy, or both if not specified or all)",
+)
+@click.option(
     "--file",
     "-f",
     type=click.Path(exists=True),
     help="Path to a file containing ticker symbols (one per line)",
 )
 @click.argument("tickers", nargs=-1, required=False)
-def init(config: str, file: str = None, tickers: List[str] = None):
+def init(config: str, file: str = None, period: str = None, tickers: List[str] = None):
     """
     Initialize database tables and ingest financial data.
 
@@ -175,7 +190,8 @@ def init(config: str, file: str = None, tickers: List[str] = None):
 
     # Ingest data
     tickers_list = None if not tickers else tickers
-    data_ingestor.driver(config_file=config, tickers=tickers_list)
+    period = None if period == "all" else period
+    data_ingestor.driver(config_file=config, tickers=tickers_list, period=period)
 
 
 # Override the get_help method to provide custom formatted help

@@ -6,7 +6,7 @@ import os
 import datetime
 import ssl
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 
@@ -52,13 +52,19 @@ dataset_to_base_url_key = {
     Datasets.HISTORTICAL_PRICE_EOD_FULL: "base_url_new",
 }
 
+def get_default_params_for_dataset(dataset: Datasets, period: str) -> dict:
+    if period not in ["quarter", "fy"]:
+        raise ValueError("period must be either 'quarter' or 'period'.")
 
-dataset_to_default_params = {
-    Datasets.BALANCE_SHEET_STATEMENT: {"period": "quarter"},
-    Datasets.CASH_FLOW_STATEMENT: {"period": "quarter"},
-    Datasets.INCOME_STATEMENT: {"period": "quarter"},
-    Datasets.HISTORTICAL_PRICE_EOD_FULL: {"from": "1900-01-01", "to": datetime.date.today().strftime("%Y-%m-%d")}
-}
+    dataset_to_default_params = {
+        Datasets.BALANCE_SHEET_STATEMENT: {"period": period},
+        Datasets.CASH_FLOW_STATEMENT: {"period": period},
+        Datasets.INCOME_STATEMENT: {"period": period},
+        Datasets.HISTORTICAL_PRICE_EOD_FULL: {"from": "1900-01-01", "to": datetime.date.today().strftime("%Y-%m-%d")}
+    }
+
+    return dataset_to_default_params.get(dataset, {})
+
 
 datasets_to_api_version = {
     Datasets.HISTORTICAL_PRICE_EOD_FULL: "stable",
@@ -69,11 +75,13 @@ datasets_to_api_version = {
 }
 
 
-dataset_to_table_name = {
+dataset_to_table_name_fy = {
     Datasets.INCOME_STATEMENT: "income_statement_fy",
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_fy",
     Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_fy",
-    Datasets.ENTERPRISE_VALUES: "shares_fy",
+    # Datasets.ENTERPRISE_VALUES: "shares_fy",
+    Datasets.PROFILE: "company",
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: "price",
 }
 
 
@@ -194,7 +202,8 @@ def gather_dataset(
     return pd.DataFrame.from_records(json_data)
 
 
-def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, config=None, **kwargs):
+def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, config=None, period="quarter",
+                       **kwargs):
     """
     Add datasets for a symbol to the database.
 
@@ -212,6 +221,8 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
         List to append failed symbols to
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    period : str, default="quarter"
+        Data period ("quarter" or "fy")
     **kwargs
         Additional arguments for dataset gathering
     """
@@ -222,14 +233,21 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
         key = config["api"]["key"]
     datasets = Datasets if datasets is None else datasets
 
+    if period == "quarter":
+        dataset_to_table_name_to_use = dataset_to_table_name_quarter
+    elif period == "fy":
+        dataset_to_table_name_to_use = dataset_to_table_name_fy
+    else:
+        raise ValueError("period must be either 'quarter' or 'fy'")
+
     try:
         with connection.cursor() as cursor:
             for dataset in datasets:
-                table_name = dataset_to_table_name_quarter[dataset]
+                table_name = dataset_to_table_name_to_use[dataset]
                 print(f"--Processing {symbol} for {table_name} table.")
 
                 # Fetch new data from API
-                default_params = dataset_to_default_params.get(Datasets(dataset), {}) if dataset in dataset_to_default_params else {}
+                default_params = get_default_params_for_dataset(Datasets(dataset), period)
                 kwargs_to_use = kwargs.copy()
                 for param, value in default_params.items():
                     if param not in kwargs:
@@ -691,7 +709,8 @@ def handle_rate_limiting(counter, start_time, config=None):
     return counter, start_time
 
 
-def process_symbol(connection, symbol, api_key=None, failure_list=None, period="quarter", config=None):
+def process_symbol(connection, symbol, api_key=None, failure_list=None, period="quarter", include_daily_eod_price=True,
+                   config=None, datasets: Optional[List[Datasets]] = None):
     """
     Process a single symbol by adding its datasets to the database.
 
@@ -707,8 +726,12 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
         List to append failed symbols to
     period : str, default="quarter"
         Data period ("quarter" or "fy")
+    include_daily_eod_price: bool, default=True
+        Include ingestion of daily EOD prices for symbol
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    datasets: List[Datasets], optional
+        List of datasets to process.  If None, processes all datasets.
     """
     if config is None:
         config = load_config()
@@ -716,23 +739,25 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
     if api_key is None:
         api_key = config["api"]["key"]
     print(f"Processing {symbol}")
+    datasets = datasets if datasets is not None else [
+        Datasets.PROFILE,
+        Datasets.INCOME_STATEMENT,
+        Datasets.CASH_FLOW_STATEMENT,
+        Datasets.BALANCE_SHEET_STATEMENT,
+        Datasets.HISTORTICAL_PRICE_EOD_FULL,
+    ]
     add_datasets_to_db(
         connection,
         symbol,
-        datasets=[
-            Datasets.PROFILE,
-            Datasets.INCOME_STATEMENT,
-            Datasets.CASH_FLOW_STATEMENT,
-            Datasets.BALANCE_SHEET_STATEMENT,
-            Datasets.HISTORTICAL_PRICE_EOD_FULL,
-        ],
+        datasets=datasets,
         key=api_key,
         failure_list=failure_list,
         config=config,
+        period=period
     )
 
 
-def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
+def ingest_tickers(tickers=None, api_key=None, config_file="config.json", period: Optional[str] = None):
     """
     Main function to process quarterly financial data for all companies, or only selected companies.
 
@@ -744,6 +769,9 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
         API key for the financial data provider. If None, uses the key from config
     config_file : str, default="config.json"
         Path to the JSON configuration file
+    period : str, optional
+        Period for ingestion for each ticker.  Options are "quarter", "fy", or None.  If None, both "quarter" and "fy"
+        data will be ingested.
 
     Returns
     -------
@@ -779,8 +807,21 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
         counter, start_time = handle_rate_limiting(counter, start_time, config)
 
         # Process the current symbol
-        process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
-        counter += 1
+        # TODO: counter is not accurate, since process_symbol() has multiple API calls
+        if period is None:
+            process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
+            datasets = [
+                Datasets.PROFILE,
+                Datasets.INCOME_STATEMENT,
+                Datasets.CASH_FLOW_STATEMENT,
+                Datasets.BALANCE_SHEET_STATEMENT,
+            ]
+            process_symbol(connection, symbol, api_key, symbols_with_failure, period="fy", config=config,
+                           datasets=datasets)
+            counter += 2
+        else:
+            process_symbol(connection, symbol, api_key, symbols_with_failure, period=period, config=config)
+            counter += 1
 
     return symbols_with_failure
 
@@ -804,8 +845,8 @@ def load_config(config_file="config.json") -> Dict[str, Any]:
         return json.load(f)
 
 
-def driver(config_file="config.json", tickers=None):
-    failed_symbols = ingest_tickers(tickers=tickers, config_file=config_file)
+def driver(config_file="config.json", tickers=None, period: Optional[str] = None):
+    failed_symbols = ingest_tickers(tickers=tickers, config_file=config_file, period=period)
     print(f"The following symbols failed: {failed_symbols}")
 
 
