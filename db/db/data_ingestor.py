@@ -6,7 +6,7 @@ import os
 import datetime
 import ssl
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 
@@ -53,12 +53,22 @@ dataset_to_base_url_key = {
 }
 
 
-dataset_to_default_params = {
-    Datasets.BALANCE_SHEET_STATEMENT: {"period": "quarter"},
-    Datasets.CASH_FLOW_STATEMENT: {"period": "quarter"},
-    Datasets.INCOME_STATEMENT: {"period": "quarter"},
-    Datasets.HISTORTICAL_PRICE_EOD_FULL: {"from": "1900-01-01", "to": datetime.date.today().strftime("%Y-%m-%d")}
-}
+def get_default_params_for_dataset(dataset: Datasets, period: str) -> dict:
+    if period not in ["quarter", "fy"]:
+        raise ValueError("period must be either 'quarter' or 'period'.")
+
+    dataset_to_default_params = {
+        Datasets.BALANCE_SHEET_STATEMENT: {"period": period},
+        Datasets.CASH_FLOW_STATEMENT: {"period": period},
+        Datasets.INCOME_STATEMENT: {"period": period},
+        Datasets.HISTORTICAL_PRICE_EOD_FULL: {
+            "from": "1900-01-01",
+            "to": datetime.date.today().strftime("%Y-%m-%d"),
+        },
+    }
+
+    return dataset_to_default_params.get(dataset, {})
+
 
 datasets_to_api_version = {
     Datasets.HISTORTICAL_PRICE_EOD_FULL: "stable",
@@ -69,11 +79,13 @@ datasets_to_api_version = {
 }
 
 
-dataset_to_table_name = {
+dataset_to_table_name_fy = {
     Datasets.INCOME_STATEMENT: "income_statement_fy",
     Datasets.BALANCE_SHEET_STATEMENT: "balance_sheet_fy",
     Datasets.CASH_FLOW_STATEMENT: "cash_flow_statement_fy",
-    Datasets.ENTERPRISE_VALUES: "shares_fy",
+    # Datasets.ENTERPRISE_VALUES: "shares_fy",
+    Datasets.PROFILE: "company",
+    Datasets.HISTORTICAL_PRICE_EOD_FULL: "price",
 }
 
 
@@ -190,11 +202,22 @@ def gather_dataset(
 
     api_version = datasets_to_api_version.get(Datasets(dataset), "v3")
 
-    json_data = get_jsonparsed_data(dataset, ticker, key, config=config, api_version=api_version, **kwargs_to_use)
+    json_data = get_jsonparsed_data(
+        dataset, ticker, key, config=config, api_version=api_version, **kwargs_to_use
+    )
     return pd.DataFrame.from_records(json_data)
 
 
-def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None, config=None, **kwargs):
+def add_datasets_to_db(
+    connection,
+    symbol,
+    datasets,
+    key=None,
+    failure_list=None,
+    config=None,
+    period="quarter",
+    **kwargs,
+):
     """
     Add datasets for a symbol to the database.
 
@@ -212,6 +235,8 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
         List to append failed symbols to
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    period : str, default="quarter"
+        Data period ("quarter" or "fy")
     **kwargs
         Additional arguments for dataset gathering
     """
@@ -222,19 +247,28 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
         key = config["api"]["key"]
     datasets = Datasets if datasets is None else datasets
 
+    if period == "quarter":
+        dataset_to_table_name_to_use = dataset_to_table_name_quarter
+    elif period == "fy":
+        dataset_to_table_name_to_use = dataset_to_table_name_fy
+    else:
+        raise ValueError("period must be either 'quarter' or 'fy'")
+
     try:
         with connection.cursor() as cursor:
             for dataset in datasets:
-                table_name = dataset_to_table_name_quarter[dataset]
+                table_name = dataset_to_table_name_to_use[dataset]
                 print(f"--Processing {symbol} for {table_name} table.")
 
                 # Fetch new data from API
-                default_params = dataset_to_default_params.get(Datasets(dataset), {}) if dataset in dataset_to_default_params else {}
+                default_params = get_default_params_for_dataset(Datasets(dataset), period)
                 kwargs_to_use = kwargs.copy()
                 for param, value in default_params.items():
                     if param not in kwargs:
                         kwargs_to_use.update({param: value})
-                new_data_df = gather_dataset(symbol, dataset.value, key, config=config, **kwargs_to_use)
+                new_data_df = gather_dataset(
+                    symbol, dataset.value, key, config=config, **kwargs_to_use
+                )
 
                 if new_data_df.empty:
                     print(f"--No new data found for {symbol} in {table_name}, skipping.")
@@ -248,7 +282,9 @@ def add_datasets_to_db(connection, symbol, datasets, key=None, failure_list=None
                 if "calendaryear" in new_data_df.columns:
                     new_data_df["calendaryear"] = new_data_df["calendaryear"].astype(int)
 
-                process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare, dataset)
+                process_dataset(
+                    cursor, symbol, table_name, new_data_df, columns_to_compare, dataset
+                )
 
         connection.commit()
         print(f"{symbol} processing complete.")
@@ -310,16 +346,18 @@ def process_dataset(cursor, symbol, table_name, new_data_df, columns_to_compare,
     existing_records = cursor.fetchall()
 
     if existing_records:
-        process_existing_records(cursor, symbol, table_name, new_data_df,
-                                columns_to_compare, existing_records, dataset)
+        process_existing_records(
+            cursor, symbol, table_name, new_data_df, columns_to_compare, existing_records, dataset
+        )
     else:
         # If no existing records, insert all new data
         print(f"--Inserting new records for {symbol} in {table_name}")
         insert_records_from_df(cursor, new_data_df[columns_to_compare], table_name)
 
 
-def process_existing_records(cursor, symbol, table_name, new_data_df,
-                           columns_to_compare, existing_records, dataset):
+def process_existing_records(
+    cursor, symbol, table_name, new_data_df, columns_to_compare, existing_records, dataset
+):
     """
     Process records when there are existing entries in the database.
 
@@ -341,9 +379,7 @@ def process_existing_records(cursor, symbol, table_name, new_data_df,
         The dataset being processed
     """
     # Convert existing records to DataFrame
-    existing_df = pd.DataFrame(
-        existing_records, columns=[desc[0] for desc in cursor.description]
-    )
+    existing_df = pd.DataFrame(existing_records, columns=[desc[0] for desc in cursor.description])
 
     # Identify records to update or insert
     merge_keys = get_merge_keys(dataset, new_data_df)
@@ -357,12 +393,10 @@ def process_existing_records(cursor, symbol, table_name, new_data_df,
     )
 
     # Handle new records (left_only)
-    process_new_records(cursor, symbol, table_name, comparison,
-                       columns_to_compare, merge_keys)
+    process_new_records(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys)
 
     # Handle updates (both present but different values)
-    process_updates(cursor, symbol, table_name, comparison,
-                   columns_to_compare, merge_keys)
+    process_updates(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys)
 
 
 def get_merge_keys(dataset, new_data_df):
@@ -487,7 +521,9 @@ def should_update_value(new_val, old_val, col):
         # Handle date comparisons
         if isinstance(new_val, str) and isinstance(old_val, (datetime.date, datetime.datetime)):
             try:
-                new_date = datetime.datetime.strptime(new_val, "%Y-%m-%d" if " " not in new_val else "%Y-%m-%d %H:%M:%S").date()
+                new_date = datetime.datetime.strptime(
+                    new_val, "%Y-%m-%d" if " " not in new_val else "%Y-%m-%d %H:%M:%S"
+                ).date()
                 old_date = old_val
                 if hasattr(old_val, "date") and callable(getattr(old_val, "date")):
                     old_date = old_val.date()
@@ -552,9 +588,7 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
     if not update_values:
         return
 
-    records_updated_str = " and ".join(
-        [f"{key} = '{row[key]}'" for key in merge_keys]
-    )
+    records_updated_str = " and ".join([f"{key} = '{row[key]}'" for key in merge_keys])
     updated_records_str = ",\n".join(
         [
             f"{key} = '{row[key + '_y']}' -> {key} = '{update_values[key]}'"
@@ -564,9 +598,7 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
     print(
         f"--Updating records:\n{updated_records_str}\nwhere\n{records_updated_str} for {symbol} in {table_name}\n"
     )
-    where_clause = " AND ".join(
-        [f"{key} = '{row[key]}'" for key in merge_keys]
-    )
+    where_clause = " AND ".join([f"{key} = '{row[key]}'" for key in merge_keys])
     set_clause = ", ".join([f"{col} = %s" for col in update_values.keys()])
     update_sql = f"""
         UPDATE {table_name}
@@ -599,7 +631,7 @@ def get_company_tickers(config=None):
 
     url = "https://www.sec.gov/files/company_tickers.json"
     headers = {
-        'User-Agent': config["api"]["user_agent"],
+        "User-Agent": config["api"]["user_agent"],
     }
 
     try:
@@ -613,7 +645,9 @@ def get_company_tickers(config=None):
         print("Falling back to local file...")
         # Fallback to local file
         fallback_file = config["paths"]["company_tickers_json"]
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), fallback_file)) as user_file:
+        with open(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), fallback_file)
+        ) as user_file:
             file_contents = user_file.read()
             return json.loads(file_contents)
 
@@ -691,7 +725,16 @@ def handle_rate_limiting(counter, start_time, config=None):
     return counter, start_time
 
 
-def process_symbol(connection, symbol, api_key=None, failure_list=None, period="quarter", config=None):
+def process_symbol(
+    connection,
+    symbol,
+    api_key=None,
+    failure_list=None,
+    period="quarter",
+    include_daily_eod_price=True,
+    config=None,
+    datasets: Optional[List[Datasets]] = None,
+):
     """
     Process a single symbol by adding its datasets to the database.
 
@@ -707,8 +750,12 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
         List to append failed symbols to
     period : str, default="quarter"
         Data period ("quarter" or "fy")
+    include_daily_eod_price: bool, default=True
+        Include ingestion of daily EOD prices for symbol
     config : Dict[str, Any], optional
         Configuration dictionary. If None, loads from config.json
+    datasets: List[Datasets], optional
+        List of datasets to process.  If None, processes all datasets.
     """
     if config is None:
         config = load_config()
@@ -716,23 +763,31 @@ def process_symbol(connection, symbol, api_key=None, failure_list=None, period="
     if api_key is None:
         api_key = config["api"]["key"]
     print(f"Processing {symbol}")
-    add_datasets_to_db(
-        connection,
-        symbol,
-        datasets=[
+    datasets = (
+        datasets
+        if datasets is not None
+        else [
             Datasets.PROFILE,
             Datasets.INCOME_STATEMENT,
             Datasets.CASH_FLOW_STATEMENT,
             Datasets.BALANCE_SHEET_STATEMENT,
             Datasets.HISTORTICAL_PRICE_EOD_FULL,
-        ],
+        ]
+    )
+    add_datasets_to_db(
+        connection,
+        symbol,
+        datasets=datasets,
         key=api_key,
         failure_list=failure_list,
         config=config,
+        period=period,
     )
 
 
-def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
+def ingest_tickers(
+    tickers=None, api_key=None, config_file="config.json", period: Optional[str] = None
+):
     """
     Main function to process quarterly financial data for all companies, or only selected companies.
 
@@ -744,6 +799,9 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
         API key for the financial data provider. If None, uses the key from config
     config_file : str, default="config.json"
         Path to the JSON configuration file
+    period : str, optional
+        Period for ingestion for each ticker.  Options are "quarter", "fy", or None.  If None, both "quarter" and "fy"
+        data will be ingested.
 
     Returns
     -------
@@ -779,8 +837,31 @@ def ingest_tickers(tickers=None, api_key=None, config_file="config.json"):
         counter, start_time = handle_rate_limiting(counter, start_time, config)
 
         # Process the current symbol
-        process_symbol(connection, symbol, api_key, symbols_with_failure, period="quarter", config=config)
-        counter += 1
+        if period is None:
+            process_symbol(
+                connection, symbol, api_key, symbols_with_failure, period="quarter", config=config
+            )
+            datasets = [
+                Datasets.PROFILE,
+                Datasets.INCOME_STATEMENT,
+                Datasets.CASH_FLOW_STATEMENT,
+                Datasets.BALANCE_SHEET_STATEMENT,
+            ]
+            process_symbol(
+                connection,
+                symbol,
+                api_key,
+                symbols_with_failure,
+                period="fy",
+                config=config,
+                datasets=datasets,
+            )
+            counter += 5 + 4  # 5 for quarter, 4 for fy
+        else:
+            process_symbol(
+                connection, symbol, api_key, symbols_with_failure, period=period, config=config
+            )
+            counter += 5  # 5 for quarter
 
     return symbols_with_failure
 
@@ -800,14 +881,13 @@ def load_config(config_file="config.json") -> Dict[str, Any]:
         Dictionary containing the configuration
     """
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), config_file)
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         return json.load(f)
 
 
-def driver(config_file="config.json", tickers=None):
-    failed_symbols = ingest_tickers(tickers=tickers, config_file=config_file)
+def driver(config_file="config.json", tickers=None, period: Optional[str] = None):
+    failed_symbols = ingest_tickers(tickers=tickers, config_file=config_file, period=period)
     print(f"The following symbols failed: {failed_symbols}")
-
 
 
 if __name__ == "__main__":

@@ -32,9 +32,8 @@ original_cli_help = cli.get_help
 def custom_cli_help(ctx):
     help_text = original_cli_help(ctx)
 
-    # Add our custom formatted section after the description
-    commands_section = """
-Commands:
+    # Define our custom commands section
+    commands_section = """Commands:
   init      Initialize database tables and ingest financial data
   ingest    Ingest financial data for specified company tickers
   create    Create database tables for financial data
@@ -42,12 +41,22 @@ Commands:
 Run 'eden COMMAND --help' for more information on a command.
 """
 
-    # Insert our section after the description but before the options
-    if "Options:" in help_text:
-        parts = help_text.split("Options:")
-        return parts[0] + commands_section + "Options:" + parts[1]
+    # Replace the default Commands section with our custom one
+    if "Commands:" in help_text:
+        parts = help_text.split("Commands:")
+        # Keep the part before "Commands:" and replace everything between "Commands:" and "Options:"
+        if "Options:" in parts[1]:
+            options_part = parts[1].split("Options:")[1]
+            return parts[0] + commands_section + "Options:" + options_part
+        else:
+            return parts[0] + commands_section
     else:
-        return help_text + commands_section
+        # If no Commands section exists, just add ours before Options
+        if "Options:" in help_text:
+            parts = help_text.split("Options:")
+            return parts[0] + commands_section + "Options:" + parts[1]
+        else:
+            return help_text + commands_section
 
 cli.get_help = custom_cli_help
 
@@ -69,8 +78,15 @@ cli.get_help = custom_cli_help
     type=click.Path(exists=True),
     help="Path to a file containing ticker symbols (one per line)",
 )
+@click.option(
+    "--period",
+    "-p",
+    type=click.Choice(["quarter", "fy", "all"], case_sensitive=False),
+    default=None,
+    help="Data period to ingest (quarter, fy, or both if not specified or all)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def ingest(config: str, file: str = None, tickers: List[str] = None):
+def ingest(config: str, file: str = None, period: str = None, tickers: List[str] = None):
     """
     Ingest financial data for specified company tickers.   Type `eden ingest --help` for more information.
 
@@ -89,7 +105,8 @@ def ingest(config: str, file: str = None, tickers: List[str] = None):
             tickers = file_tickers
 
     tickers = None if not tickers else tickers
-    data_ingestor.driver(config_file=config, tickers=tickers)
+    period = None if period == "all" else period
+    data_ingestor.driver(config_file=config, tickers=tickers, period=period)
 
 
 @cli.command()
@@ -139,13 +156,20 @@ create.get_help = custom_format_help
     help="Path to the configuration file",
 )
 @click.option(
+    "--period",
+    "-p",
+    type=click.Choice(["quarter", "fy", "all"], case_sensitive=False),
+    default=None,
+    help="Data period to ingest (quarter, fy, or both if not specified or all)",
+)
+@click.option(
     "--file",
     "-f",
     type=click.Path(exists=True),
     help="Path to a file containing ticker symbols (one per line)",
 )
 @click.argument("tickers", nargs=-1, required=False)
-def init(config: str, file: str = None, tickers: List[str] = None):
+def init(config: str, file: str = None, period: str = None, tickers: List[str] = None):
     """
     Initialize database tables and ingest financial data.
 
@@ -166,7 +190,8 @@ def init(config: str, file: str = None, tickers: List[str] = None):
 
     # Ingest data
     tickers_list = None if not tickers else tickers
-    data_ingestor.driver(config_file=config, tickers=tickers_list)
+    period = None if period == "all" else period
+    data_ingestor.driver(config_file=config, tickers=tickers_list, period=period)
 
 
 # Override the get_help method to provide custom formatted help
