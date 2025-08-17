@@ -9,6 +9,8 @@ from enum import Enum
 from typing import Optional, Dict, Any, List
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
+from collections import defaultdict
+from psycopg2.extras import execute_values
 
 from db.utils import (
     connect,
@@ -418,9 +420,9 @@ def get_merge_keys(dataset, new_data_df):
     if dataset == Datasets.PROFILE:
         return ["symbol"]
     elif dataset == Datasets.HISTORTICAL_PRICE_EOD_FULL:
-        return ["date"]
+        return ["symbol", "date"]
     else:
-        return ["calendaryear", "period"] if "period" in new_data_df.columns else ["calendaryear"]
+        return ["symbol", "calendaryear", "period"] if "period" in new_data_df.columns else ["symbol", "calendaryear"]
 
 
 def process_new_records(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
@@ -479,23 +481,33 @@ def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, 
         List of columns used as merge keys
     """
     updates = comparison[comparison["_merge"] == "both"]
-    for _, row in updates.iterrows():
-        update_needed = False
-        update_values = {}
-
+    # {index: [i1, ...], <merge_key1>: [val, ...], <merge_key2>: [val, ...],... , col: [(old_val, new_val), ...], ...}
+    update_values = defaultdict(list)
+    for index, row in updates.iterrows():
         for col in columns_to_compare:
             if col in merge_keys:
+                # update_values[col].append(row[col])
                 continue
 
             new_val = row[f"{col}_x"] if f"{col}_x" in row else row[col]
             old_val = row[f"{col}_y"] if f"{col}_y" in row else None
 
-            if should_update_value(new_val, old_val, col):
-                update_needed = True
-                update_values[col] = new_val
+            if should_update_value(new_val, old_val, col) and col not in merge_keys:
+                # update_values[col].append((old_val, new_val))
+                update_values[col].append(new_val)
+            elif col not in merge_keys:
+                update_values[col].append(pd.NA)
+        update_values["index"].append(index)
 
-        if update_needed:
-            apply_updates(cursor, symbol, table_name, row, update_values, merge_keys)
+        # if update_needed:
+        #     apply_updates(cursor, symbol, table_name, row, update_values, merge_keys)
+
+    # apply updates in bulk
+    update_values = pd.DataFrame(update_values, index=update_values["index"])
+    update_values = update_values.drop(columns=["index"])
+    update_values = update_values.dropna(how="all", axis=0)
+    update_values = update_values.dropna(how="all", axis=1)
+    apply_updates(cursor, symbol, table_name, update_values, merge_keys,)
 
 
 def should_update_value(new_val, old_val, col):
@@ -566,7 +578,69 @@ def should_update_value(new_val, old_val, col):
     return False
 
 
-def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
+def convert_value_to_postgres_type(value, column_name, table_name):
+    """
+    Convert a value to the appropriate Python type for PostgreSQL.
+    
+    Parameters
+    ----------
+    value : any
+        The value to convert
+    column_name : str
+        Name of the column
+    table_name : str
+        Name of the table
+        
+    Returns
+    -------
+    any
+        Converted value
+    """
+    if pd.isna(value) or value is None:
+        return None
+        
+    # Map table names to their column type dictionaries
+    table_to_columns = {
+        'company': DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
+        'income_statement_fy': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'income_statement_quarter': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'balance_sheet_fy': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        'balance_sheet_quarter': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        'cash_flow_statement_fy': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'cash_flow_statement_quarter': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'price': DEFAULT_PRICE_COLUMNS_TO_TYPE,
+    }
+    
+    # Get the column type for this table
+    column_types = table_to_columns.get(table_name, {})
+    column_types = {FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type for col, col_type in column_types.items()}
+    column_type = column_types.get(column_name, 'text')
+    
+    # Extract base type (remove "primary key" etc.)
+    base_type = column_type.split()[0]
+    
+    try:
+        if base_type in ['smallint', 'int', 'bigint', 'serial']:
+            return int(value)
+        elif base_type == 'real':
+            return float(value)
+        elif base_type == 'bool':
+            return bool(value)
+        elif base_type == 'date':
+            if isinstance(value, str):
+                return datetime.datetime.strptime(value, '%Y-%m-%d').date()
+            return value
+        elif base_type == 'timestamp':
+            if isinstance(value, str):
+                return datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+            return value
+        else:  # text and others
+            return str(value) if value is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
+def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
     """
     Apply updates to the database.
 
@@ -578,34 +652,98 @@ def apply_updates(cursor, symbol, table_name, row, update_values, merge_keys):
         Stock symbol being processed
     table_name : str
         Name of the database table
-    row
-        The row being updated
-    update_values : dict
-        Dictionary of column names to new values
+    update_values : pd.DataFrame
+        DataFrame of values to update
     merge_keys : list
         List of columns used as merge keys
     """
-    if not update_values:
+    if update_values.empty:
         return
 
-    records_updated_str = " and ".join([f"{key} = '{row[key]}'" for key in merge_keys])
-    updated_records_str = ",\n".join(
-        [
-            f"{key} = '{row[key + '_y']}' -> {key} = '{update_values[key]}'"
-            for key in update_values.keys()
-        ]
-    )
-    print(
-        f"--Updating records:\n{updated_records_str}\nwhere\n{records_updated_str} for {symbol} in {table_name}\n"
-    )
-    where_clause = " AND ".join([f"{key} = '{row[key]}'" for key in merge_keys])
-    set_clause = ", ".join([f"{col} = %s" for col in update_values.keys()])
-    update_sql = f"""
-        UPDATE {table_name}
-        SET {set_clause}
-        WHERE symbol = '{symbol}' AND {where_clause}
+    # Replace pandas NA values with None for psycopg2 compatibility
+    update_values = update_values.replace({pd.NA: None})
+    
+    # Create columns list including merge keys and update columns
+    all_columns = list(update_values.columns)
+    for key in merge_keys:
+        if key not in all_columns:
+            all_columns.append(key)
+
+    # Create data tuples for each row with proper type conversion
+    data = []
+    for idx, row in update_values.iterrows():
+        row_data = []
+        for col in all_columns:
+            if col in update_values.columns:
+                val = row[col]
+                # Convert to proper PostgreSQL type
+                converted_val = convert_value_to_postgres_type(val, col, table_name)
+                row_data.append(converted_val)
+            elif col == 'symbol':
+                row_data.append(symbol)
+            else:
+                row_data.append(None)
+        data.append(tuple(row_data))
+
+    # Get column type mappings for casting
+    table_to_columns = {
+        'company': DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
+        'income_statement_fy': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'income_statement_quarter': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'balance_sheet_fy': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        'balance_sheet_quarter': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        'cash_flow_statement_fy': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'cash_flow_statement_quarter': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        'price': DEFAULT_PRICE_COLUMNS_TO_TYPE,
+    }
+    
+    column_types = table_to_columns.get(table_name, {})
+    column_types = {FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type for col, col_type in column_types.items()}
+
+    # Create SET clause with proper type casting
+    set_clauses = []
+    for col in update_values.columns:
+        column_type = column_types.get(col, 'text')
+        base_type = column_type.split()[0]
+        
+        if base_type in ['smallint', 'int', 'bigint', 'serial']:
+            set_clauses.append(f"{col} = tmp.{col}::bigint")
+        elif base_type == 'real':
+            set_clauses.append(f"{col} = tmp.{col}::real")
+        elif base_type == 'bool':
+            set_clauses.append(f"{col} = tmp.{col}::boolean")
+        elif base_type == 'date':
+            set_clauses.append(f"{col} = tmp.{col}::date")
+        elif base_type == 'timestamp':
+            set_clauses.append(f"{col} = tmp.{col}::timestamp")
+        else:
+            set_clauses.append(f"{col} = tmp.{col}")
+    
+    set_clause = ", ".join(set_clauses)
+
+    # Create WHERE clause with proper type casting
+    where_conditions = []
+    for key in merge_keys:
+        if key == 'symbol':
+            where_conditions.append(f"{table_name}.{key} = '{symbol}'")
+        elif key == 'calendaryear':
+            where_conditions.append(f"{table_name}.{key} = tmp.{key}::smallint")
+        elif key == 'date':
+            where_conditions.append(f"{table_name}.{key} = tmp.{key}::date")
+        else:
+            where_conditions.append(f"{table_name}.{key} = tmp.{key}")
+    where_clause = " AND ".join(where_conditions)
+
+    # SQL template for execute_values
+    sql = f"""
+    UPDATE {table_name}
+    SET {set_clause}
+    FROM (VALUES %s) AS tmp ({', '.join(all_columns)})
+    WHERE {where_clause}
     """
-    cursor.execute(update_sql, list(update_values.values()))
+
+    # Execute the bulk update
+    execute_values(cursor, sql, data)
 
 
 def get_company_tickers(config=None):
