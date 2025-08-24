@@ -1,4 +1,6 @@
-db/db/database*.ini
+project_eden/db/database*.ini
 key.txt
-db/db/config.json
-db/db_backups
+project_eden/db/config.json
+project_eden/db/db_backups
+project_eden/db/config_dev.json
+project_eden/db/config_scratch.json

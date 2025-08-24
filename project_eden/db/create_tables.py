@@ -6,7 +6,7 @@ from psycopg2 import sql
 from enum import Enum
 
 from typing import Optional, Tuple, Dict, Any, List
-from db.utils import connect
+from project_eden.db.utils import connect
 
 
 DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE = {

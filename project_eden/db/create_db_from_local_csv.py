@@ -2,8 +2,8 @@ import psycopg2
 import pandas as pd
 import os
 
-from db.utils import load_config
-from db.create_tables import (
+from project_eden.db.utils import load_config
+from project_eden.db.create_tables import (
     create_income_statement_table,
     create_company_table,
     create_balance_sheet_table,

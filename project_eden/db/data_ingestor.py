@@ -12,11 +12,11 @@ from urllib.error import HTTPError
 from collections import defaultdict
 from psycopg2.extras import execute_values
 
-from db.utils import (
+from project_eden.db.utils import (
     connect,
     insert_records_from_df,
 )
-from db.create_tables import (
+from project_eden.db.create_tables import (
     DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
     DEFAULT_SHARES_COLUMNS_TO_TYPE,
     FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES,
