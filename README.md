@@ -1,1 +1,0 @@
-![](./assets/repo_logo.png)
