@@ -422,7 +422,11 @@ def get_merge_keys(dataset, new_data_df):
     elif dataset == Datasets.HISTORTICAL_PRICE_EOD_FULL:
         return ["symbol", "date"]
     else:
-        return ["symbol", "calendaryear", "period"] if "period" in new_data_df.columns else ["symbol", "calendaryear"]
+        return (
+            ["symbol", "calendaryear", "period"]
+            if "period" in new_data_df.columns
+            else ["symbol", "calendaryear"]
+        )
 
 
 def process_new_records(cursor, symbol, table_name, comparison, columns_to_compare, merge_keys):
@@ -507,7 +511,13 @@ def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, 
     update_values = update_values.drop(columns=["index"])
     update_values = update_values.dropna(how="all", axis=0)
     update_values = update_values.dropna(how="all", axis=1)
-    apply_updates(cursor, symbol, table_name, update_values, merge_keys,)
+    apply_updates(
+        cursor,
+        symbol,
+        table_name,
+        update_values,
+        merge_keys,
+    )
 
 
 def should_update_value(new_val, old_val, col):
@@ -581,7 +591,7 @@ def should_update_value(new_val, old_val, col):
 def convert_value_to_postgres_type(value, column_name, table_name):
     """
     Convert a value to the appropriate Python type for PostgreSQL.
-    
+
     Parameters
     ----------
     value : any
@@ -590,7 +600,7 @@ def convert_value_to_postgres_type(value, column_name, table_name):
         Name of the column
     table_name : str
         Name of the table
-        
+
     Returns
     -------
     any
@@ -598,41 +608,44 @@ def convert_value_to_postgres_type(value, column_name, table_name):
     """
     if pd.isna(value) or value is None:
         return None
-        
+
     # Map table names to their column type dictionaries
     table_to_columns = {
-        'company': DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
-        'income_statement_fy': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'income_statement_quarter': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'balance_sheet_fy': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
-        'balance_sheet_quarter': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
-        'cash_flow_statement_fy': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'cash_flow_statement_quarter': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'price': DEFAULT_PRICE_COLUMNS_TO_TYPE,
+        "company": DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
+        "income_statement_fy": DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "income_statement_quarter": DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "balance_sheet_fy": DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        "balance_sheet_quarter": DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        "cash_flow_statement_fy": DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "cash_flow_statement_quarter": DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "price": DEFAULT_PRICE_COLUMNS_TO_TYPE,
     }
-    
+
     # Get the column type for this table
     column_types = table_to_columns.get(table_name, {})
-    column_types = {FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type for col, col_type in column_types.items()}
-    column_type = column_types.get(column_name, 'text')
-    
+    column_types = {
+        FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type
+        for col, col_type in column_types.items()
+    }
+    column_type = column_types.get(column_name, "text")
+
     # Extract base type (remove "primary key" etc.)
     base_type = column_type.split()[0]
-    
+
     try:
-        if base_type in ['smallint', 'int', 'bigint', 'serial']:
+        if base_type in ["smallint", "int", "bigint", "serial"]:
             return int(value)
-        elif base_type == 'real':
+        elif base_type == "real":
             return float(value)
-        elif base_type == 'bool':
+        elif base_type == "bool":
             return bool(value)
-        elif base_type == 'date':
+        elif base_type == "date":
             if isinstance(value, str):
-                return datetime.datetime.strptime(value, '%Y-%m-%d').date()
+                return datetime.datetime.strptime(value, "%Y-%m-%d").date()
             return value
-        elif base_type == 'timestamp':
+        elif base_type == "timestamp":
             if isinstance(value, str):
-                return datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                return datetime.datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
             return value
         else:  # text and others
             return str(value) if value is not None else None
@@ -662,7 +675,7 @@ def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
 
     # Replace pandas NA values with None for psycopg2 compatibility
     update_values = update_values.replace({pd.NA: None})
-    
+
     # Create columns list including merge keys and update columns
     all_columns = list(update_values.columns)
     for key in merge_keys:
@@ -679,7 +692,7 @@ def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
                 # Convert to proper PostgreSQL type
                 converted_val = convert_value_to_postgres_type(val, col, table_name)
                 row_data.append(converted_val)
-            elif col == 'symbol':
+            elif col == "symbol":
                 row_data.append(symbol)
             else:
                 row_data.append(None)
@@ -687,48 +700,51 @@ def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
 
     # Get column type mappings for casting
     table_to_columns = {
-        'company': DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
-        'income_statement_fy': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'income_statement_quarter': DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'balance_sheet_fy': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
-        'balance_sheet_quarter': DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
-        'cash_flow_statement_fy': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'cash_flow_statement_quarter': DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
-        'price': DEFAULT_PRICE_COLUMNS_TO_TYPE,
+        "company": DEFAULT_COMPANY_TABLE_COLUMNS_TO_TYPE,
+        "income_statement_fy": DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "income_statement_quarter": DEFAULT_INCOME_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "balance_sheet_fy": DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        "balance_sheet_quarter": DEFAULT_BALANCE_SHEET_TABLE_COLUMNS_TO_TYPE,
+        "cash_flow_statement_fy": DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "cash_flow_statement_quarter": DEFAULT_CASHFLOW_STATEMENT_TABLE_COLUMNS_TO_TYPE,
+        "price": DEFAULT_PRICE_COLUMNS_TO_TYPE,
     }
-    
+
     column_types = table_to_columns.get(table_name, {})
-    column_types = {FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type for col, col_type in column_types.items()}
+    column_types = {
+        FMP_COLUMN_NAMES_TO_POSTGRES_COLUMN_NAMES.get(col, col): col_type
+        for col, col_type in column_types.items()
+    }
 
     # Create SET clause with proper type casting
     set_clauses = []
     for col in update_values.columns:
-        column_type = column_types.get(col, 'text')
+        column_type = column_types.get(col, "text")
         base_type = column_type.split()[0]
-        
-        if base_type in ['smallint', 'int', 'bigint', 'serial']:
+
+        if base_type in ["smallint", "int", "bigint", "serial"]:
             set_clauses.append(f"{col} = tmp.{col}::bigint")
-        elif base_type == 'real':
+        elif base_type == "real":
             set_clauses.append(f"{col} = tmp.{col}::real")
-        elif base_type == 'bool':
+        elif base_type == "bool":
             set_clauses.append(f"{col} = tmp.{col}::boolean")
-        elif base_type == 'date':
+        elif base_type == "date":
             set_clauses.append(f"{col} = tmp.{col}::date")
-        elif base_type == 'timestamp':
+        elif base_type == "timestamp":
             set_clauses.append(f"{col} = tmp.{col}::timestamp")
         else:
             set_clauses.append(f"{col} = tmp.{col}")
-    
+
     set_clause = ", ".join(set_clauses)
 
     # Create WHERE clause with proper type casting
     where_conditions = []
     for key in merge_keys:
-        if key == 'symbol':
+        if key == "symbol":
             where_conditions.append(f"{table_name}.{key} = '{symbol}'")
-        elif key == 'calendaryear':
+        elif key == "calendaryear":
             where_conditions.append(f"{table_name}.{key} = tmp.{key}::smallint")
-        elif key == 'date':
+        elif key == "date":
             where_conditions.append(f"{table_name}.{key} = tmp.{key}::date")
         else:
             where_conditions.append(f"{table_name}.{key} = tmp.{key}")
