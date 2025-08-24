@@ -15,9 +15,8 @@ sys.path.insert(0, db_path)
 # Adjust default config path to be absolute
 DEFAULT_CONFIG_PATH = os.path.join(project_root, "db/db/config.json")
 
-import db.data_ingestor as data_ingestor
-import db.create_tables as create_tables
-from db.create_tables import AvailableTables
+import project_eden.db.data_ingestor as data_ingestor
+import project_eden.db.create_tables as create_tables
 
 
 @click.group()
@@ -133,7 +132,7 @@ def custom_format_help(ctx):
     formatter.write_text("TABLES: One or more table names to create. If not provided, all tables will be created.")
     formatter.write_paragraph()
     formatter.write_text("Available tables:")
-    for table in AvailableTables:
+    for table in create_tables.AvailableTables:
         formatter.write_text(f"  • {table.value}")
 
     # Get the original help text for options and arguments
