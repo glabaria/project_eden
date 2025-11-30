@@ -5,3 +5,4 @@ project_eden/db/db_backups
 project_eden/db/config_dev.json
 project_eden/db/config_scratch.json
 pypi_api_token
+/do_not_commit/
