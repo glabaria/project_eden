@@ -7,8 +7,9 @@ readme = "README.rst"
 license = "AGPL-3.0"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.12,<3.14"
 click = "^8.1.8"
+zenml = { version = "*", extras = ["local", "server"] }
 
 [tool.poetry.scripts]
 eden = "project_eden.cli:cli"
