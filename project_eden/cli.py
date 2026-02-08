@@ -84,8 +84,14 @@ cli.get_help = custom_cli_help
     default=None,
     help="Data period to ingest (quarter, fy, or both if not specified or all)",
 )
+@click.option(
+    "--pipeline",
+    is_flag=True,
+    default=False,
+    help="Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def ingest(config: str, file: str = None, period: str = None, tickers: List[str] = None):
+def ingest(config: str, file: str = None, period: str = None, pipeline: bool = False, tickers: List[str] = None):
     """
     Ingest financial data for specified company tickers.   Type `eden ingest --help` for more information.
 
@@ -104,8 +110,30 @@ def ingest(config: str, file: str = None, period: str = None, tickers: List[str]
             tickers = file_tickers
 
     tickers = None if not tickers else tickers
-    period = None if period == "all" else period
-    data_ingestor.driver(config_file=config, tickers=tickers, period=period)
+    period_value = None if period == "all" else period
+
+    if pipeline:
+        # Use ZenML pipeline for execution
+        from project_eden.pipeline import financial_data_ingestion_pipeline
+
+        print("Running ingestion using ZenML pipeline...")
+        results = financial_data_ingestion_pipeline(
+            config_file=config,
+            tickers=tickers,
+            period=period_value
+        )
+
+        # Report results
+        failed = [ticker for ticker, success in results if not success]
+        successful = [ticker for ticker, success in results if success]
+
+        print(f"\nIngestion complete!")
+        print(f"Successful: {len(successful)} tickers")
+        if failed:
+            print(f"Failed: {len(failed)} tickers - {failed}")
+    else:
+        # Use direct execution (original behavior)
+        data_ingestor.driver(config_file=config, tickers=tickers, period=period_value)
 
 
 @cli.command()
@@ -167,8 +195,14 @@ create.get_help = custom_format_help
     type=click.Path(exists=True),
     help="Path to a file containing ticker symbols (one per line)",
 )
+@click.option(
+    "--pipeline",
+    is_flag=True,
+    default=False,
+    help="Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def init(config: str, file: str = None, period: str = None, tickers: List[str] = None):
+def init(config: str, file: str = None, period: str = None, pipeline: bool = False, tickers: List[str] = None):
     """
     Initialize database tables and ingest financial data.
 
@@ -189,8 +223,30 @@ def init(config: str, file: str = None, period: str = None, tickers: List[str] =
 
     # Ingest data
     tickers_list = None if not tickers else tickers
-    period = None if period == "all" else period
-    data_ingestor.driver(config_file=config, tickers=tickers_list, period=period)
+    period_value = None if period == "all" else period
+
+    if pipeline:
+        # Use ZenML pipeline for execution
+        from project_eden.pipeline import financial_data_ingestion_pipeline
+
+        print("Running ingestion using ZenML pipeline...")
+        results = financial_data_ingestion_pipeline(
+            config_file=config,
+            tickers=tickers_list,
+            period=period_value
+        )
+
+        # Report results
+        failed = [ticker for ticker, success in results if not success]
+        successful = [ticker for ticker, success in results if success]
+
+        print(f"\nIngestion complete!")
+        print(f"Successful: {len(successful)} tickers")
+        if failed:
+            print(f"Failed: {len(failed)} tickers - {failed}")
+    else:
+        # Use direct execution (original behavior)
+        data_ingestor.driver(config_file=config, tickers=tickers_list, period=period_value)
 
 
 # Override the get_help method to provide custom formatted help

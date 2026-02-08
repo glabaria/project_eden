@@ -100,6 +100,39 @@ To ingest financial data for specific companies::
     # Ingest only fiscal year data
     eden ingest --period fy AAPL
 
+Using ZenML Pipeline Mode
+--------------------------
+
+For enhanced tracking, observability, and reproducibility, you can use the ``--pipeline`` flag to execute ingestion through ZenML pipelines::
+
+    # Use ZenML pipeline for ingestion
+    eden ingest --pipeline AAPL MSFT GOOG
+
+    # Initialize with pipeline mode
+    eden init --pipeline AAPL MSFT
+
+**Benefits of Pipeline Mode:**
+
+* **Tracking & Observability**: All pipeline runs are tracked with metadata, parameters, and results
+* **Reproducibility**: Every run is versioned with exact parameters for easy re-execution
+* **Error Handling**: Better failure isolation and built-in retry mechanisms
+* **Lineage Tracking**: Complete audit trail of what data was ingested, when, and with what configuration
+* **Scalability**: Easy to switch from local execution to cloud orchestrators (e.g., Kubernetes) without code changes
+
+**When to Use Pipeline Mode:**
+
+* Production data ingestion workflows
+* Large-scale ingestion (100+ tickers)
+* Scheduled or automated runs
+* When you need compliance and audit trails
+* When you want to track ingestion history and performance
+
+**When to Use Direct Mode (default):**
+
+* Quick testing or debugging (1-5 tickers)
+* Development and experimentation
+* Simple one-off ingestions
+
 Command Options
 ===============
 
@@ -108,10 +141,11 @@ All commands support the following options:
 * ``--config, -c``: Path to configuration file (default: ``db/db/config.json``)
 * ``--help``: Show help information for any command
 
-For data ingestion commands:
+For data ingestion commands (``init`` and ``ingest``):
 
 * ``--file, -f``: Path to file containing ticker symbols (one per line)
 * ``--period, -p``: Data period to ingest (``quarter``, ``fy``, or ``all``)
+* ``--pipeline``: Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)
 
 Configuration
 =============
@@ -153,6 +187,8 @@ Project Structure
 
     project_eden/
     ├── assets/                 # Project assets (logos, images)
+    ├── examples/              # Example scripts
+    │   └── run_ingestion_pipeline.py
     ├── project_eden/          # Main package
     │   ├── cli.py            # Command-line interface
     │   ├── db/               # Database modules
@@ -160,6 +196,10 @@ Project Structure
     │   │   ├── create_tables.py
     │   │   ├── data_ingestor.py
     │   │   └── utils.py
+    │   ├── pipeline/         # ZenML pipelines
+    │   │   └── data_ingestion_etl.py
+    │   ├── steps/            # ZenML pipeline steps
+    │   │   └── data_ingestion.py
     │   └── __init__.py
     ├── scripts/              # Utility scripts
     ├── pyproject.toml        # Project configuration
