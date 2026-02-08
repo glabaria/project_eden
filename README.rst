@@ -100,6 +100,68 @@ To ingest financial data for specific companies::
     # Ingest only fiscal year data
     eden ingest --period fy AAPL
 
+Using ZenML Pipeline Mode
+--------------------------
+
+For enhanced tracking, observability, and reproducibility, you can use the ``--pipeline`` flag to execute ingestion through ZenML pipelines::
+
+    # Use ZenML pipeline for ingestion
+    eden ingest --pipeline AAPL MSFT GOOG
+
+    # Initialize with pipeline mode
+    eden init --pipeline AAPL MSFT
+
+**Benefits of Pipeline Mode:**
+
+* **Tracking & Observability**: All pipeline runs are tracked with metadata, parameters, and results
+* **Reproducibility**: Every run is versioned with exact parameters for easy re-execution
+* **Error Handling**: Better failure isolation and built-in retry mechanisms
+* **Lineage Tracking**: Complete audit trail of what data was ingested, when, and with what configuration
+* **Scalability**: Easy to switch from local execution to cloud orchestrators (e.g., Kubernetes) without code changes
+
+**When to Use Pipeline Mode:**
+
+* Production data ingestion workflows
+* Large-scale ingestion (recommended to also use ``--parallel``, see below)
+* Scheduled or automated runs
+* When you need compliance and audit trails
+* When you want to track ingestion history and performance
+
+**When to Use Direct Mode (default):**
+
+* Quick testing or debugging (1-5 tickers)
+* Development and experimentation
+* Simple one-off ingestions
+
+Using Parallel Pipeline Mode
+-----------------------------
+
+For maximum performance when ingesting many tickers, use the ``--parallel`` flag with ``--pipeline`` to enable parallel execution with automatic rate limiting::
+
+    # Parallel ingestion with rate limiting
+    eden ingest --pipeline --parallel AAPL MSFT GOOG AMZN META
+
+    # Initialize with parallel mode
+    eden init --pipeline --parallel AAPL MSFT
+
+    # Ingest all tickers in parallel
+    eden ingest --pipeline --parallel
+
+**How Parallel Mode Works:**
+
+The parallel pipeline uses a **token bucket rate limiter** that coordinates across all parallel workers to ensure the total API call rate never exceeds your configured limit (``rate_limit_per_min`` in config.json).
+
+* Workers process tickers simultaneously
+* Each worker acquires "tokens" before making API calls
+* Tokens refill at the configured rate (e.g., 300 per minute)
+* Workers automatically wait if insufficient tokens are available
+
+**Performance Benefits:**
+
+* **Sequential mode**: Processes ~1 ticker per minute (with 5 datasets)
+* **Parallel mode**: Processes up to 60 tickers per minute (with 300 calls/min limit)
+* **Example**: 100 tickers takes ~100 minutes sequential vs. ~2-3 minutes parallel
+
 Command Options
 ===============
 
@@ -108,10 +170,12 @@ All commands support the following options:
 * ``--config, -c``: Path to configuration file (default: ``db/db/config.json``)
 * ``--help``: Show help information for any command
 
-For data ingestion commands:
+For data ingestion commands (``init`` and ``ingest``):
 
 * ``--file, -f``: Path to file containing ticker symbols (one per line)
 * ``--period, -p``: Data period to ingest (``quarter``, ``fy``, or ``all``)
+* ``--pipeline``: Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)
+* ``--parallel``: Use parallel execution with rate limiting (requires ``--pipeline`` flag)
 
 Configuration
 =============
@@ -122,7 +186,6 @@ Example configuration files are available in the ``project_eden/db/`` directory:
 
 * ``config_example.json`` - Template configuration file
 * ``config_dev.json`` - Development configuration
-* ``config_scratch.json`` - Scratch/testing configuration
 
 Development
 ===========
@@ -153,6 +216,8 @@ Project Structure
 
     project_eden/
     ├── assets/                 # Project assets (logos, images)
+    ├── examples/              # Example scripts
+    │   └── run_ingestion_pipeline.py
     ├── project_eden/          # Main package
     │   ├── cli.py            # Command-line interface
     │   ├── db/               # Database modules
@@ -160,6 +225,13 @@ Project Structure
     │   │   ├── create_tables.py
     │   │   ├── data_ingestor.py
     │   │   └── utils.py
+    │   ├── pipeline/         # ZenML pipelines
+    │   │   ├── __init__.py
+    │   │   ├── data_ingestion_etl.py          # Sequential ingestion pipeline
+    │   │   └── data_ingestion_parallel.py     # Parallel ingestion pipeline with rate limiting
+    │   ├── steps/            # ZenML pipeline steps
+    │   │   ├── __init__.py
+    │   │   └── data_ingestion.py              # Data ingestion steps (load config, fetch data, etc.)
     │   └── __init__.py
     ├── scripts/              # Utility scripts
     ├── pyproject.toml        # Project configuration
