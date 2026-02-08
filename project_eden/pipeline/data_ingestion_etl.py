@@ -36,7 +36,8 @@ def financial_data_ingestion_pipeline(
     datasets : Optional[List[Datasets]], default=None
         List of datasets to ingest. If None, ingests all default datasets.
     period : str, default="quarter"
-        Period for data ingestion ("quarter" or "fy")
+        Period for data ingestion ("quarter", "fy", or "all").
+        If "all", ingests both quarterly and fiscal year data.
 
     Returns
     -------

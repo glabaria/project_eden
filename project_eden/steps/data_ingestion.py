@@ -11,6 +11,7 @@ from project_eden.db.data_ingestor import (
     add_datasets_to_db,
     handle_rate_limiting,
 )
+from project_eden.utils.rate_limiter import get_rate_limiter
 
 @step
 def load_configuration_step(config_file: str = "config.json") -> Dict[str, Any]:
@@ -135,7 +136,8 @@ def ingest_all_tickers_step(
     datasets : Optional[List[Datasets]], default=None
         List of datasets to ingest. If None, ingests all default datasets.
     period : str, default="quarter"
-        Period for data ingestion ("quarter" or "fy")
+        Period for data ingestion ("quarter", "fy", or "all").
+        If "all", ingests both quarterly and fiscal year data.
 
     Returns
     -------
@@ -146,15 +148,34 @@ def ingest_all_tickers_step(
     counter = 0
     start_time = time.time()
 
-    # Determine number of API calls per ticker based on datasets
-    datasets_to_process = datasets or [
-        Datasets.PROFILE,
-        Datasets.INCOME_STATEMENT,
-        Datasets.CASH_FLOW_STATEMENT,
-        Datasets.BALANCE_SHEET_STATEMENT,
-        Datasets.HISTORTICAL_PRICE_EOD_FULL,
-    ]
-    api_calls_per_ticker = len(datasets_to_process)
+    # Determine if we need to process both periods
+    process_both_periods = period is None or period == "all"
+
+    if process_both_periods:
+        # For both periods: quarterly gets all datasets, fiscal year excludes PROFILE
+        datasets_quarter = datasets or [
+            Datasets.PROFILE,
+            Datasets.INCOME_STATEMENT,
+            Datasets.CASH_FLOW_STATEMENT,
+            Datasets.BALANCE_SHEET_STATEMENT,
+            Datasets.HISTORTICAL_PRICE_EOD_FULL,
+        ]
+        datasets_fy = datasets or [
+            Datasets.INCOME_STATEMENT,
+            Datasets.CASH_FLOW_STATEMENT,
+            Datasets.BALANCE_SHEET_STATEMENT,
+        ]
+        api_calls_per_ticker = len(datasets_quarter) + len(datasets_fy)
+    else:
+        # Single period processing
+        datasets_to_process = datasets or [
+            Datasets.PROFILE,
+            Datasets.INCOME_STATEMENT,
+            Datasets.CASH_FLOW_STATEMENT,
+            Datasets.BALANCE_SHEET_STATEMENT,
+            Datasets.HISTORTICAL_PRICE_EOD_FULL,
+        ]
+        api_calls_per_ticker = len(datasets_to_process)
 
     results = []
 
@@ -167,6 +188,176 @@ def ingest_all_tickers_step(
         try:
             connection = connect_to_database(config)
 
+            if process_both_periods:
+                # Process quarterly data
+                add_datasets_to_db(
+                    connection=connection,
+                    symbol=ticker,
+                    datasets=datasets_quarter,
+                    config=config,
+                    period="quarter"
+                )
+
+                # Process fiscal year data
+                add_datasets_to_db(
+                    connection=connection,
+                    symbol=ticker,
+                    datasets=datasets_fy,
+                    config=config,
+                    period="fy"
+                )
+                print(f"Successfully processed {ticker} (both periods)")
+            else:
+                # Process single period
+                add_datasets_to_db(
+                    connection=connection,
+                    symbol=ticker,
+                    datasets=datasets_to_process,
+                    config=config,
+                    period=period
+                )
+                print(f"Successfully processed {ticker}")
+
+            connection.close()
+            results.append((ticker, True))
+
+        except Exception as e:
+            print(f"Error processing {ticker}: {e}")
+            results.append((ticker, False))
+
+    return results
+
+
+@step
+def initialize_rate_limiter_step(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Initialize the global rate limiter for parallel execution.
+
+    This step should be called once at the beginning of a parallel pipeline
+    to set up the shared rate limiter that all parallel workers will use.
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary containing rate_limit_per_min
+
+    Returns
+    -------
+    Dict[str, Any]
+        The same config (for chaining)
+    """
+    rate_limiter = get_rate_limiter(config)
+    print(f"Rate limiter initialized: {config['api']['rate_limit_per_min']} calls/min")
+    print(f"Available tokens: {rate_limiter.get_available_tokens():.2f}")
+    return config
+
+
+@step
+def ingest_ticker_data_parallel_step(
+    ticker: str,
+    config_file: str,
+    datasets: Optional[List[Datasets]] = None,
+    period: str = "quarter"
+) -> Tuple[str, bool]:
+    """
+    Ingest all datasets for a single ticker with rate limiting for parallel execution.
+
+    This step uses a shared rate limiter to coordinate with other parallel workers,
+    ensuring the total API call rate across all workers doesn't exceed the limit.
+
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol to process
+    config_file : str
+        Path to configuration file
+    datasets : Optional[List[Datasets]], default=None
+        List of datasets to ingest. If None, ingests all default datasets.
+    period : str, default="quarter"
+        Period for data ingestion ("quarter", "fy", or "all").
+        If "all", ingests both quarterly and fiscal year data.
+
+    Returns
+    -------
+    Tuple[str, bool]
+        Tuple of (ticker, success_status)
+    """
+    try:
+        # Load configuration
+        config = load_config(config_file)
+
+        # Determine if we need to process both periods
+        process_both_periods = period is None or period == "all"
+
+        if process_both_periods:
+            # Process quarterly data first with all datasets
+            datasets_quarter = datasets or [
+                Datasets.PROFILE,
+                Datasets.INCOME_STATEMENT,
+                Datasets.CASH_FLOW_STATEMENT,
+                Datasets.BALANCE_SHEET_STATEMENT,
+                Datasets.HISTORTICAL_PRICE_EOD_FULL,
+            ]
+
+            # Process fiscal year data with datasets excluding PROFILE (not period-specific)
+            datasets_fy = datasets or [
+                Datasets.INCOME_STATEMENT,
+                Datasets.CASH_FLOW_STATEMENT,
+                Datasets.BALANCE_SHEET_STATEMENT,
+            ]
+
+            num_api_calls = len(datasets_quarter) + len(datasets_fy)
+
+            # Acquire tokens from the shared rate limiter before making API calls
+            rate_limiter = get_rate_limiter(config)
+            print(f"[{ticker}] Acquiring {num_api_calls} tokens from rate limiter (both periods)...")
+            rate_limiter.acquire(num_api_calls)
+            print(f"[{ticker}] Tokens acquired, starting ingestion for both periods...")
+
+            # Now we have permission to make the API calls
+            connection = connect_to_database(config)
+
+            # Process quarterly data
+            add_datasets_to_db(
+                connection=connection,
+                symbol=ticker,
+                datasets=datasets_quarter,
+                config=config,
+                period="quarter"
+            )
+
+            # Process fiscal year data
+            add_datasets_to_db(
+                connection=connection,
+                symbol=ticker,
+                datasets=datasets_fy,
+                config=config,
+                period="fy"
+            )
+
+            connection.close()
+            print(f"[{ticker}] Successfully processed both periods")
+            return ticker, True
+        else:
+            # Process single period
+            datasets_to_process = datasets or [
+                Datasets.PROFILE,
+                Datasets.INCOME_STATEMENT,
+                Datasets.CASH_FLOW_STATEMENT,
+                Datasets.BALANCE_SHEET_STATEMENT,
+                Datasets.HISTORTICAL_PRICE_EOD_FULL,
+            ]
+            num_api_calls = len(datasets_to_process)
+
+            # Acquire tokens from the shared rate limiter before making API calls
+            rate_limiter = get_rate_limiter(config)
+            print(f"[{ticker}] Acquiring {num_api_calls} tokens from rate limiter...")
+            rate_limiter.acquire(num_api_calls)
+            print(f"[{ticker}] Tokens acquired, starting ingestion...")
+
+            # Now we have permission to make the API calls
+            connection = connect_to_database(config)
+
             add_datasets_to_db(
                 connection=connection,
                 symbol=ticker,
@@ -176,11 +367,9 @@ def ingest_all_tickers_step(
             )
 
             connection.close()
-            results.append((ticker, True))
-            print(f"Successfully processed {ticker}")
+            print(f"[{ticker}] Successfully processed")
+            return ticker, True
 
-        except Exception as e:
-            print(f"Error processing {ticker}: {e}")
-            results.append((ticker, False))
-
-    return results
+    except Exception as e:
+        print(f"[{ticker}] Error processing: {e}")
+        return ticker, False

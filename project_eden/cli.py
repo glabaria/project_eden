@@ -17,6 +17,10 @@ DEFAULT_CONFIG_PATH = os.path.join(project_root, "db/db/config.json")
 
 import project_eden.db.data_ingestor as data_ingestor
 import project_eden.db.create_tables as create_tables
+from project_eden.pipeline import (
+    financial_data_ingestion_pipeline,
+    financial_data_ingestion_parallel_pipeline,
+)
 
 
 @click.group()
@@ -90,8 +94,14 @@ cli.get_help = custom_cli_help
     default=False,
     help="Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)",
 )
+@click.option(
+    "--parallel",
+    is_flag=True,
+    default=False,
+    help="Use parallel execution with rate limiting (requires --pipeline flag)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def ingest(config: str, file: str = None, period: str = None, pipeline: bool = False, tickers: List[str] = None):
+def ingest(config: str, file: str = None, period: str = None, pipeline: bool = False, parallel: bool = False, tickers: List[str] = None):
     """
     Ingest financial data for specified company tickers.   Type `eden ingest --help` for more information.
 
@@ -110,18 +120,48 @@ def ingest(config: str, file: str = None, period: str = None, pipeline: bool = F
             tickers = file_tickers
 
     tickers = None if not tickers else tickers
-    period_value = None if period == "all" else period
+
+    # Handle period parameter
+    if pipeline:
+        # Pipeline mode: Convert None to "all" to avoid ZenML serialization issues
+        # ZenML has trouble with unmapped(None) values
+        period_value = "all" if period is None or period == "all" else period
+    else:
+        # Non-pipeline mode: Use None to mean "both periods"
+        period_value = None if period == "all" or period is None else period
 
     if pipeline:
-        # Use ZenML pipeline for execution
-        from project_eden.pipeline import financial_data_ingestion_pipeline
+        # Validate parallel flag
+        if parallel and not pipeline:
+            print("Error: --parallel flag requires --pipeline flag")
+            return
 
-        print("Running ingestion using ZenML pipeline...")
-        results = financial_data_ingestion_pipeline(
-            config_file=config,
-            tickers=tickers,
-            period=period_value
-        )
+        # Use ZenML pipeline for execution
+        if parallel:
+            print("Running ingestion using ZenML parallel pipeline with rate limiting...")
+            pipeline_run = financial_data_ingestion_parallel_pipeline(
+                config_file=config,
+                tickers=tickers,
+                period=period_value
+            )
+            # Extract results from parallel pipeline (.map() creates multiple step instances)
+            # Each mapped invocation creates a separate step (ingest_ticker_data_parallel_step,
+            # ingest_ticker_data_parallel_step_2, etc.)
+            results = []
+            for step_name in pipeline_run.steps.keys():
+                if "ingest_ticker_data_parallel_step" in step_name:
+                    step_outputs = pipeline_run.steps[step_name].outputs
+                    # Each step returns Tuple[str, bool], so it has output_0 (ticker) and output_1 (success)
+                    ticker = step_outputs['output_0'][0].load()
+                    success = step_outputs['output_1'][0].load()
+                    results.append((ticker, success))
+        else:
+            print("Running ingestion using ZenML pipeline (sequential)...")
+            results = financial_data_ingestion_pipeline(
+                config_file=config,
+                tickers=tickers,
+                period=period_value
+            )
 
         # Report results
         failed = [ticker for ticker, success in results if not success]
@@ -201,8 +241,14 @@ create.get_help = custom_format_help
     default=False,
     help="Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)",
 )
+@click.option(
+    "--parallel",
+    is_flag=True,
+    default=False,
+    help="Use parallel execution with rate limiting (requires --pipeline flag)",
+)
 @click.argument("tickers", nargs=-1, required=False)
-def init(config: str, file: str = None, period: str = None, pipeline: bool = False, tickers: List[str] = None):
+def init(config: str, file: str = None, period: str = None, pipeline: bool = False, parallel: bool = False, tickers: List[str] = None):
     """
     Initialize database tables and ingest financial data.
 
@@ -223,18 +269,48 @@ def init(config: str, file: str = None, period: str = None, pipeline: bool = Fal
 
     # Ingest data
     tickers_list = None if not tickers else tickers
-    period_value = None if period == "all" else period
+
+    # Handle period parameter
+    if pipeline:
+        # Pipeline mode: Convert None to "all" to avoid ZenML serialization issues
+        # ZenML has trouble with unmapped(None) values
+        period_value = "all" if period is None or period == "all" else period
+    else:
+        # Non-pipeline mode: Use None to mean "both periods"
+        period_value = None if period == "all" or period is None else period
 
     if pipeline:
-        # Use ZenML pipeline for execution
-        from project_eden.pipeline import financial_data_ingestion_pipeline
+        # Validate parallel flag
+        if parallel and not pipeline:
+            print("Error: --parallel flag requires --pipeline flag")
+            return
 
-        print("Running ingestion using ZenML pipeline...")
-        results = financial_data_ingestion_pipeline(
-            config_file=config,
-            tickers=tickers_list,
-            period=period_value
-        )
+        # Use ZenML pipeline for execution
+        if parallel:
+            print("Running ingestion using ZenML parallel pipeline with rate limiting...")
+            pipeline_run = financial_data_ingestion_parallel_pipeline(
+                config_file=config,
+                tickers=tickers_list,
+                period=period_value
+            )
+            # Extract results from parallel pipeline (.map() creates multiple step instances)
+            # Each mapped invocation creates a separate step (ingest_ticker_data_parallel_step,
+            # ingest_ticker_data_parallel_step_2, etc.)
+            results = []
+            for step_name in pipeline_run.steps.keys():
+                if "ingest_ticker_data_parallel_step" in step_name:
+                    step_outputs = pipeline_run.steps[step_name].outputs
+                    # Each step returns Tuple[str, bool], so it has output_0 (ticker) and output_1 (success)
+                    ticker = step_outputs['output_0'][0].load()
+                    success = step_outputs['output_1'][0].load()
+                    results.append((ticker, success))
+        else:
+            print("Running ingestion using ZenML pipeline (sequential)...")
+            results = financial_data_ingestion_pipeline(
+                config_file=config,
+                tickers=tickers_list,
+                period=period_value
+            )
 
         # Report results
         failed = [ticker for ticker, success in results if not success]

@@ -133,6 +133,50 @@ For enhanced tracking, observability, and reproducibility, you can use the ``--p
 * Development and experimentation
 * Simple one-off ingestions
 
+Using Parallel Pipeline Mode
+-----------------------------
+
+For maximum performance when ingesting many tickers, use the ``--parallel`` flag with ``--pipeline`` to enable parallel execution with automatic rate limiting::
+
+    # Parallel ingestion with rate limiting
+    eden ingest --pipeline --parallel AAPL MSFT GOOG AMZN META
+
+    # Initialize with parallel mode
+    eden init --pipeline --parallel AAPL MSFT
+
+    # Ingest all tickers in parallel
+    eden ingest --pipeline --parallel
+
+**How Parallel Mode Works:**
+
+The parallel pipeline uses a **token bucket rate limiter** that coordinates across all parallel workers to ensure the total API call rate never exceeds your configured limit (``rate_limit_per_min`` in config.json).
+
+* Workers process tickers simultaneously
+* Each worker acquires "tokens" before making API calls
+* Tokens refill at the configured rate (e.g., 300 per minute)
+* Workers automatically wait if insufficient tokens are available
+
+**Performance Benefits:**
+
+* **Sequential mode**: Processes ~1 ticker per minute (with 5 datasets)
+* **Parallel mode**: Processes up to 60 tickers per minute (with 300 calls/min limit)
+* **Example**: 100 tickers takes ~100 minutes sequential vs. ~2-3 minutes parallel
+
+**When to Use Parallel Mode:**
+
+* Large-scale ingestion (50+ tickers)
+* When you want to maximize API quota usage
+* Production workflows with time constraints
+* Batch processing of many tickers
+
+**When to Use Sequential Mode:**
+
+* Small number of tickers (< 10)
+* Testing and debugging
+* When you want simpler execution flow
+
+See ``docs/PARALLEL_PIPELINE.md`` for detailed documentation on parallel execution.
+
 Command Options
 ===============
 
@@ -146,6 +190,7 @@ For data ingestion commands (``init`` and ``ingest``):
 * ``--file, -f``: Path to file containing ticker symbols (one per line)
 * ``--period, -p``: Data period to ingest (``quarter``, ``fy``, or ``all``)
 * ``--pipeline``: Use ZenML pipeline for execution (enables tracking, observability, and reproducibility)
+* ``--parallel``: Use parallel execution with rate limiting (requires ``--pipeline`` flag)
 
 Configuration
 =============
