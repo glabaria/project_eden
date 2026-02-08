@@ -122,7 +122,7 @@ For enhanced tracking, observability, and reproducibility, you can use the ``--p
 **When to Use Pipeline Mode:**
 
 * Production data ingestion workflows
-* Large-scale ingestion (100+ tickers)
+* Large-scale ingestion (recommended to also use ``--parallel``, see below)
 * Scheduled or automated runs
 * When you need compliance and audit trails
 * When you want to track ingestion history and performance
@@ -162,21 +162,6 @@ The parallel pipeline uses a **token bucket rate limiter** that coordinates acro
 * **Parallel mode**: Processes up to 60 tickers per minute (with 300 calls/min limit)
 * **Example**: 100 tickers takes ~100 minutes sequential vs. ~2-3 minutes parallel
 
-**When to Use Parallel Mode:**
-
-* Large-scale ingestion (50+ tickers)
-* When you want to maximize API quota usage
-* Production workflows with time constraints
-* Batch processing of many tickers
-
-**When to Use Sequential Mode:**
-
-* Small number of tickers (< 10)
-* Testing and debugging
-* When you want simpler execution flow
-
-See ``docs/PARALLEL_PIPELINE.md`` for detailed documentation on parallel execution.
-
 Command Options
 ===============
 
@@ -201,7 +186,6 @@ Example configuration files are available in the ``project_eden/db/`` directory:
 
 * ``config_example.json`` - Template configuration file
 * ``config_dev.json`` - Development configuration
-* ``config_scratch.json`` - Scratch/testing configuration
 
 Development
 ===========
@@ -242,9 +226,12 @@ Project Structure
     │   │   ├── data_ingestor.py
     │   │   └── utils.py
     │   ├── pipeline/         # ZenML pipelines
-    │   │   └── data_ingestion_etl.py
+    │   │   ├── __init__.py
+    │   │   ├── data_ingestion_etl.py          # Sequential ingestion pipeline
+    │   │   └── data_ingestion_parallel.py     # Parallel ingestion pipeline with rate limiting
     │   ├── steps/            # ZenML pipeline steps
-    │   │   └── data_ingestion.py
+    │   │   ├── __init__.py
+    │   │   └── data_ingestion.py              # Data ingestion steps (load config, fetch data, etc.)
     │   └── __init__.py
     ├── scripts/              # Utility scripts
     ├── pyproject.toml        # Project configuration
