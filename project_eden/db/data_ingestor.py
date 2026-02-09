@@ -488,9 +488,14 @@ def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, 
     # {index: [i1, ...], <merge_key1>: [val, ...], <merge_key2>: [val, ...],... , col: [(old_val, new_val), ...], ...}
     update_values = defaultdict(list)
     for index, row in updates.iterrows():
+        # First, add merge key values (needed for WHERE clause in UPDATE)
+        for key in merge_keys:
+            if key != "symbol":  # symbol is passed separately to apply_updates
+                update_values[key].append(row[key])
+
+        # Then process non-merge-key columns for updates
         for col in columns_to_compare:
             if col in merge_keys:
-                # update_values[col].append(row[col])
                 continue
 
             new_val = row[f"{col}_x"] if f"{col}_x" in row else row[col]
