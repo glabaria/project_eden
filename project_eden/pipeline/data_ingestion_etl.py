@@ -8,7 +8,7 @@ from project_eden.steps.data_ingestion import (
 )
 
 
-@pipeline
+@pipeline(enable_cache=False)
 def financial_data_ingestion_pipeline(
     config_file: str = "config.json",
     tickers: Optional[List[str]] = None,
