@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "project-eden"
-version = "0.2.2"
+version = "0.2.3"
 description = "Project Eden is a fundamental analysis engine, empowering investors to make smarter investment decisions."
 authors = ["glabaria <george[DOT]labaria[AT]gmail[DOT]com>"]
 readme = "README.rst"
