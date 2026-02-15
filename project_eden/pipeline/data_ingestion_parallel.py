@@ -15,7 +15,7 @@ from project_eden.steps.data_ingestion import (
 )
 
 
-@pipeline(dynamic=True)
+@pipeline(dynamic=True, enable_cache=False)
 def financial_data_ingestion_parallel_pipeline(
     config_file: str = "config.json",
     tickers: Optional[List[str]] = None,

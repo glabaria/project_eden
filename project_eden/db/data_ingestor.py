@@ -72,6 +72,48 @@ def get_default_params_for_dataset(dataset: Datasets, period: str) -> dict:
     return dataset_to_default_params.get(dataset, {})
 
 
+def split_date_range_into_chunks(start_date_str: str, end_date_str: str, max_days: int = 4900) -> List[tuple]:
+    """
+    Split a date range into chunks to handle API limits.
+
+    The FMP API returns at most 5,000 records. To be safe, we use chunks of 4,900 days
+    to account for weekends and holidays (which don't have trading data).
+
+    Parameters
+    ----------
+    start_date_str : str
+        Start date in YYYY-MM-DD format
+    end_date_str : str
+        End date in YYYY-MM-DD format
+    max_days : int, default=4900
+        Maximum number of days per chunk (default 4900 to stay under 5000 record limit)
+
+    Returns
+    -------
+    List[tuple]
+        List of (from_date, to_date) tuples as strings in YYYY-MM-DD format
+    """
+    start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d").date()
+
+    chunks = []
+    current_start = start_date
+
+    while current_start < end_date:
+        # Calculate the end of this chunk
+        current_end = min(current_start + datetime.timedelta(days=max_days), end_date)
+
+        chunks.append((
+            current_start.strftime("%Y-%m-%d"),
+            current_end.strftime("%Y-%m-%d")
+        ))
+
+        # Move to the next chunk (add 1 day to avoid overlap)
+        current_start = current_end + datetime.timedelta(days=1)
+
+    return chunks
+
+
 datasets_to_api_version = {
     Datasets.HISTORTICAL_PRICE_EOD_FULL: "stable",
     Datasets.PROFILE: "v3",
@@ -177,6 +219,9 @@ def gather_dataset(
     """
     Gather dataset from the financial API and convert to DataFrame.
 
+    For price data (HISTORTICAL_PRICE_EOD_FULL), this function automatically handles
+    the API's 5,000 record limit by splitting large date ranges into chunks.
+
     Parameters
     ----------
     ticker : str
@@ -204,10 +249,67 @@ def gather_dataset(
 
     api_version = datasets_to_api_version.get(Datasets(dataset), "v3")
 
-    json_data = get_jsonparsed_data(
-        dataset, ticker, key, config=config, api_version=api_version, **kwargs_to_use
-    )
-    return pd.DataFrame.from_records(json_data)
+    # Special handling for price data to account for 5,000 record API limit
+    if Datasets(dataset) == Datasets.HISTORTICAL_PRICE_EOD_FULL and "from" in kwargs_to_use and "to" in kwargs_to_use:
+        from_date = kwargs_to_use["from"]
+        to_date = kwargs_to_use["to"]
+
+        # Split the date range into chunks
+        date_chunks = split_date_range_into_chunks(from_date, to_date)
+
+        print(f"--Fetching price data for {ticker} in {len(date_chunks)} chunk(s) to handle API limit...")
+
+        # If we need multiple chunks, acquire additional rate limiter tokens
+        # (the first chunk is already accounted for in the caller's token acquisition)
+        if len(date_chunks) > 1:
+            try:
+                from project_eden.utils.rate_limiter import get_rate_limiter
+                rate_limiter = get_rate_limiter(config)
+                extra_calls = len(date_chunks) - 1
+                print(f"  --Acquiring {extra_calls} additional rate limiter tokens for chunked requests...")
+                rate_limiter.acquire(extra_calls)
+            except ImportError:
+                # If rate limiter is not available, continue without it
+                # (for backward compatibility with non-parallel execution)
+                pass
+
+        all_dataframes = []
+        for i, (chunk_from, chunk_to) in enumerate(date_chunks, 1):
+            print(f"  --Chunk {i}/{len(date_chunks)}: {chunk_from} to {chunk_to}")
+
+            # Update kwargs with the chunk's date range
+            chunk_kwargs = kwargs_to_use.copy()
+            chunk_kwargs["from"] = chunk_from
+            chunk_kwargs["to"] = chunk_to
+
+            # Fetch data for this chunk
+            json_data = get_jsonparsed_data(
+                dataset, ticker, key, config=config, api_version=api_version, **chunk_kwargs
+            )
+
+            if json_data:
+                chunk_df = pd.DataFrame.from_records(json_data)
+                all_dataframes.append(chunk_df)
+                print(f"  --Retrieved {len(chunk_df)} records")
+            else:
+                print(f"  --No data returned for this chunk")
+
+        # Combine all chunks
+        if all_dataframes:
+            combined_df = pd.concat(all_dataframes, ignore_index=True)
+            # Remove duplicates that might occur at chunk boundaries
+            if "date" in combined_df.columns:
+                combined_df = combined_df.drop_duplicates(subset=["date"], keep="first")
+            print(f"--Total records after combining chunks: {len(combined_df)}")
+            return combined_df
+        else:
+            return pd.DataFrame()
+    else:
+        # Standard single API call for non-price datasets
+        json_data = get_jsonparsed_data(
+            dataset, ticker, key, config=config, api_version=api_version, **kwargs_to_use
+        )
+        return pd.DataFrame.from_records(json_data)
 
 
 def add_datasets_to_db(
@@ -514,8 +616,15 @@ def process_updates(cursor, symbol, table_name, comparison, columns_to_compare, 
     # apply updates in bulk
     update_values = pd.DataFrame(update_values, index=update_values["index"])
     update_values = update_values.drop(columns=["index"])
-    update_values = update_values.dropna(how="all", axis=0)
+
+    # Drop rows where ALL non-merge-key columns are NA (no updates needed for that row)
+    non_merge_cols = [col for col in update_values.columns if col not in merge_keys]
+    if non_merge_cols:
+        update_values = update_values.dropna(subset=non_merge_cols, how="all", axis=0)
+
+    # Drop columns where ALL values are NA (no updates needed for that column)
     update_values = update_values.dropna(how="all", axis=1)
+
     apply_updates(
         cursor,
         symbol,
@@ -722,23 +831,31 @@ def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
     }
 
     # Create SET clause with proper type casting
+    # Exclude merge keys from SET clause (they're only needed for WHERE clause)
+    # Use COALESCE to preserve existing values when update value is NULL
     set_clauses = []
     for col in update_values.columns:
+        # Skip merge keys - they shouldn't be updated, only used in WHERE clause
+        if col in merge_keys:
+            continue
+
         column_type = column_types.get(col, "text")
         base_type = column_type.split()[0]
 
+        # Use COALESCE to only update when new value is not NULL
+        # This prevents pd.NA (converted to None) from setting columns to NULL
         if base_type in ["smallint", "int", "bigint", "serial"]:
-            set_clauses.append(f"{col} = tmp.{col}::bigint")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}::bigint, {table_name}.{col})")
         elif base_type == "real":
-            set_clauses.append(f"{col} = tmp.{col}::real")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}::real, {table_name}.{col})")
         elif base_type == "bool":
-            set_clauses.append(f"{col} = tmp.{col}::boolean")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}::boolean, {table_name}.{col})")
         elif base_type == "date":
-            set_clauses.append(f"{col} = tmp.{col}::date")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}::date, {table_name}.{col})")
         elif base_type == "timestamp":
-            set_clauses.append(f"{col} = tmp.{col}::timestamp")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}::timestamp, {table_name}.{col})")
         else:
-            set_clauses.append(f"{col} = tmp.{col}")
+            set_clauses.append(f"{col} = COALESCE(tmp.{col}, {table_name}.{col})")
 
     set_clause = ", ".join(set_clauses)
 
@@ -764,7 +881,12 @@ def apply_updates(cursor, symbol, table_name, update_values, merge_keys):
     """
 
     # Execute the bulk update
-    execute_values(cursor, sql, data)
+    if set_clauses:  # Only execute if there are columns to update
+        print(f"--Updating {len(data)} records in {table_name} for {symbol}")
+        print(f"  Columns being updated: {list(update_values.columns)}")
+        execute_values(cursor, sql, data)
+    else:
+        print(f"--No columns to update for {symbol} in {table_name} (only merge keys present)")
 
 
 def get_company_tickers(config=None):
