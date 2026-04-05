@@ -12,80 +12,98 @@ from typing import Dict, Any
 class TokenBucketRateLimiter:
     """
     Thread-safe token bucket rate limiter.
-    
-    This rate limiter allows bursts of API calls up to the rate limit,
-    then throttles requests to maintain the average rate over time.
-    
+
+    The bucket starts empty so that no burst of calls can happen at startup.
+    Tokens accumulate at ``rate_limit_per_min / 60`` tokens per second up to
+    a maximum of ``rate_limit_per_min``, enforcing a true per-minute ceiling.
+
+    A ``threading.Condition`` is used instead of a manual lock-release/sleep/
+    re-acquire pattern so that waiting threads are woken precisely when new
+    tokens arrive, eliminating the race window that allowed multiple threads to
+    simultaneously consume the same tokens.
+
     Parameters
     ----------
     rate_limit_per_min : int
         Maximum number of API calls allowed per minute
     """
-    
+
     def __init__(self, rate_limit_per_min: int):
         self.rate_limit_per_min = rate_limit_per_min
-        self.tokens = rate_limit_per_min
-        self.max_tokens = rate_limit_per_min
+        # Start with an empty bucket so no initial burst is possible.
+        self.tokens = 0.0
+        self.max_tokens = float(rate_limit_per_min)
         self.last_update = time.time()
-        self.lock = threading.Lock()
-        
-        # Calculate token refill rate (tokens per second)
+        # Condition wraps the underlying lock; use self._cond.acquire/release
+        # (or "with self._cond") everywhere instead of a bare Lock.
+        self._cond = threading.Condition(threading.Lock())
+
+        # Token refill rate (tokens per second)
         self.refill_rate = rate_limit_per_min / 60.0
-    
-    def _refill_tokens(self):
-        """Refill tokens based on elapsed time."""
+
+    # ------------------------------------------------------------------
+    # Internal helpers – must be called with self._cond held
+    # ------------------------------------------------------------------
+
+    def _refill_tokens(self) -> None:
+        """Refill tokens based on elapsed time (lock must be held)."""
         now = time.time()
         elapsed = now - self.last_update
-        
-        # Add tokens based on elapsed time
-        tokens_to_add = elapsed * self.refill_rate
-        self.tokens = min(self.max_tokens, self.tokens + tokens_to_add)
+        self.tokens = min(self.max_tokens, self.tokens + elapsed * self.refill_rate)
         self.last_update = now
-    
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def acquire(self, num_tokens: int = 1) -> None:
         """
-        Acquire tokens for API calls. Blocks if insufficient tokens available.
-        
+        Acquire tokens for API calls. Blocks until sufficient tokens are
+        available.
+
         Parameters
         ----------
         num_tokens : int, default=1
             Number of tokens (API calls) to acquire
         """
-        with self.lock:
+        if num_tokens > self.max_tokens:
+            raise ValueError(
+                f"Requested {num_tokens} tokens but bucket maximum is "
+                f"{int(self.max_tokens)}.  Reduce the number of simultaneous "
+                "API calls or increase rate_limit_per_min."
+            )
+
+        with self._cond:
             while True:
                 self._refill_tokens()
-                
+
                 if self.tokens >= num_tokens:
-                    # We have enough tokens, consume them and return
                     self.tokens -= num_tokens
                     return
-                else:
-                    # Not enough tokens, calculate wait time
-                    tokens_needed = num_tokens - self.tokens
-                    wait_time = tokens_needed / self.refill_rate
-                    
-                    # Release lock while sleeping to allow other threads to check
-                    self.lock.release()
-                    
-                    # Sleep for a portion of the wait time, then retry
-                    # (using smaller sleep intervals for better responsiveness)
-                    sleep_time = min(wait_time, 1.0)
-                    print(f"Rate limit: waiting {sleep_time:.2f}s for {num_tokens} tokens...")
-                    time.sleep(sleep_time)
-                    
-                    # Re-acquire lock for next iteration
-                    self.lock.acquire()
-    
+
+                # Calculate how long until enough tokens are available and
+                # wait with a timeout so we re-check after that interval.
+                tokens_needed = num_tokens - self.tokens
+                wait_time = tokens_needed / self.refill_rate
+                print(
+                    f"Rate limit: waiting {wait_time:.2f}s for "
+                    f"{num_tokens} token(s)..."
+                )
+                # Condition.wait() atomically releases the lock, sleeps for
+                # at most `wait_time` seconds, then re-acquires it before
+                # returning – no race window.
+                self._cond.wait(timeout=wait_time)
+
     def get_available_tokens(self) -> float:
         """
-        Get the current number of available tokens.
-        
+        Return the current number of available tokens.
+
         Returns
         -------
         float
             Number of available tokens
         """
-        with self.lock:
+        with self._cond:
             self._refill_tokens()
             return self.tokens
 
