@@ -20,7 +20,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
-black = "^24.3.0"
+black = ">=24.3,<27.0"
 pytest = "^9.0.0"
 
 [tool.black]
