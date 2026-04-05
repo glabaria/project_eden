@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "project-eden"
-version = "0.2.3"
+version = "0.2.4"
 description = "Project Eden is a fundamental analysis engine, empowering investors to make smarter investment decisions."
 authors = ["glabaria <george[DOT]labaria[AT]gmail[DOT]com>"]
 readme = "README.rst"
@@ -21,6 +21,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.3.0"
+pytest = "^9.0.0"
 
 [tool.black]
 line-length = 99

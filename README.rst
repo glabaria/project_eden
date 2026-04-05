@@ -216,26 +216,29 @@ Project Structure
 
     project_eden/
     ├── assets/                 # Project assets (logos, images)
-    ├── examples/              # Example scripts
-    │   └── run_ingestion_pipeline.py
-    ├── project_eden/          # Main package
-    │   ├── cli.py            # Command-line interface
-    │   ├── db/               # Database modules
-    │   │   ├── config.json   # Configuration files
+    ├── project_eden/           # Main package
+    │   ├── cli.py             # Command-line interface
+    │   ├── db/                # Database modules
     │   │   ├── create_tables.py
     │   │   ├── data_ingestor.py
     │   │   └── utils.py
-    │   ├── pipeline/         # ZenML pipelines
+    │   ├── pipeline/          # ZenML pipelines
     │   │   ├── __init__.py
     │   │   ├── data_ingestion_etl.py          # Sequential ingestion pipeline
     │   │   └── data_ingestion_parallel.py     # Parallel ingestion pipeline with rate limiting
-    │   ├── steps/            # ZenML pipeline steps
+    │   ├── steps/             # ZenML pipeline steps
     │   │   ├── __init__.py
     │   │   └── data_ingestion.py              # Data ingestion steps (load config, fetch data, etc.)
+    │   ├── utils/             # Shared utilities
+    │   │   ├── __init__.py
+    │   │   └── rate_limiter.py                # Token bucket rate limiter
     │   └── __init__.py
-    ├── scripts/              # Utility scripts
-    ├── pyproject.toml        # Project configuration
-    └── README.rst           # This file
+    ├── scripts/               # Utility scripts
+    ├── tests/                 # Unit tests
+    │   └── utils/
+    │       └── test_rate_limiter.py           # Tests for rate limiter
+    ├── pyproject.toml         # Project configuration
+    └── README.rst             # This file
 
 
 Author
